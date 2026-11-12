@@ -42,6 +42,77 @@ tags:
   - name: pose-library
     description: 站点姿势库：浏览、选用，管理员导入与图片同步
 paths:
+  /auth/api-keys:
+    get:
+      tags: [auth]
+      summary: 列出当前用户的 API Key 与 MCP 授权记录
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+    post:
+      tags: [auth]
+      summary: 创建手动 API Key，令牌仅返回一次
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+  /auth/api-keys/{id}/revoke:
+    post:
+      tags: [auth]
+      summary: 撤销当前用户的 API Key，保留授权记录
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+  /mcp:
+    post:
+      tags: [mcp]
+      summary: 远程 Streamable HTTP MCP 服务
+      description: Bearer 凭证鉴权；无凭证时返回 401 与 OAuth 资源元数据地址。请求及响应为 MCP JSON-RPC，而非业务信封。
+      security: []
+      responses:
+        "200": { description: MCP JSON-RPC 或 SSE 响应 }
+        "401": { description: 需要 OAuth 登录授权 }
+  /mcp/oauth/register:
+    post:
+      tags: [mcp]
+      summary: 登记公开 MCP OAuth 客户端
+      security: []
+      responses:
+        "201": { description: 返回 client_id 与登记的回调地址 }
+  /mcp/oauth/clients/{id}:
+    get:
+      tags: [mcp]
+      summary: 授权页读取 MCP 客户端名称
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+  /mcp/oauth/consent:
+    post:
+      tags: [mcp]
+      summary: 已登录用户确认 MCP 授权并签发一次性授权码
+      responses:
+        "200": { description: 信封 data.redirectUrl 为经登记回调地址与 code/state 组成的跳转地址 }
+  /mcp/oauth/token:
+    post:
+      tags: [mcp]
+      summary: 使用授权码与 PKCE 验证器换取 MCP Bearer 凭证
+      security: []
+      responses:
+        "200": { description: OAuth token JSON，包含 access_token、token_type 与 scope }
   /admin/api-logs/{id}:
     get:
       tags: [admin]
@@ -3220,6 +3291,56 @@ paths:
       responses:
         "200": {description: 信封 data.ok 为 true}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /admin/chatgpt-plan:
+    get:
+      tags: [admin]
+      summary: 查询本人 ChatGPT 方案连接状态
+      responses:
+        "200": {description: 信封 data 包含 connected、email、channelId，不返回令牌}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /admin/chatgpt-plan/start:
+    post:
+      tags: [admin]
+      summary: 启动本机 ChatGPT 方案 OAuth 授权
+      description: 返回 authorizationUrl，回调监听在后端同机的 127.0.0.1 动态端口。
+      responses:
+        "200": {description: 信封 data.authorizationUrl 为浏览器授权地址}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /admin/chatgpt-plan/models:
+    get:
+      tags: [admin]
+      summary: 读取当前 ChatGPT 授权账号的可见模型
+      responses:
+        "200": {description: 信封 data.models 为 slug 和 displayName 数组}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [admin]
+      summary: 将一个 ChatGPT 模型加入本人渠道
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug]
+              properties:
+                slug: {type: string}
+      responses:
+        "200": {description: 信封 data.model 为已加入的渠道模型}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /admin/chatgpt-plan/disconnect:
+    post:
+      tags: [admin]
+      summary: 断开本人 ChatGPT 方案并清除本机渠道
+      responses:
+        "200": {description: 信封 data.revocationConfirmed 表示远端撤销已确认}
         "401": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}
   /admin/channels/{id}/catalog-status:
