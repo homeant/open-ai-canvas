@@ -542,8 +542,30 @@ func TestCanonicalAgentBodiesPreserveAssistantToolCalls(t *testing.T) {
 		t.Fatalf("responses input = %#v", responseInput)
 	}
 	functionCall, _ := responseInput[2].(map[string]interface{})
-	if functionCall["type"] != "function_call" || functionCall["name"] != "canvas_get_state" || functionCall["id"] != "fc-5" || functionCall["item_reference"] != "fc-5" {
+	if functionCall["type"] != "function_call" || functionCall["name"] != "canvas_get_state" || functionCall["id"] != "fc-5" || functionCall["call_id"] != "call-5" {
 		t.Fatalf("responses function call = %#v", functionCall)
+	}
+	if _, has := functionCall["item_reference"]; has {
+		t.Fatalf("responses function call contains unsupported field: %#v", functionCall)
+	}
+}
+
+func TestCanonicalAgentResponsesBodyDoesNotAddItemReferenceToDirectCall(t *testing.T) {
+	request := canonicalAgentRequest{Messages: []map[string]any{
+		{"type": "function_call", "call_id": "call-1", "id": "fc-1", "name": "canvas_get_state", "arguments": "{}"},
+		{"role": "tool", "tool_call_id": "call-1", "content": "{}"},
+	}}
+	body, err := canonicalAgentResponsesBody(&request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := body["input"].([]interface{})
+	call := input[0].(map[string]interface{})
+	if call["id"] != "fc-1" || call["call_id"] != "call-1" {
+		t.Fatalf("responses call lost identifiers: %#v", call)
+	}
+	if _, has := call["item_reference"]; has {
+		t.Fatalf("responses call contains unsupported field: %#v", call)
 	}
 }
 

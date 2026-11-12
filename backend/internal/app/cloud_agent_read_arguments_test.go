@@ -28,6 +28,7 @@ func TestCloudAgentReadArgumentsRejectBeforeReadingCanvas(t *testing.T) {
 		{"negative offset", `{"offset":-1}`, "非负整数"},
 		{"negative storyboard offset", `{"storyboardOffset":-1}`, "非负整数"},
 		{"too many nodes", `{"nodeIds":["1","2","3","4","5","6","7","8","9"]}`, "最多包含8个"},
+		{"graph depth without focus", `{"depth":2}`, "depth 只能与 focusNodeIds 一起使用"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			call := cloudAgentCall{ID: "read-1"}
@@ -40,6 +41,32 @@ func TestCloudAgentReadArgumentsRejectBeforeReadingCanvas(t *testing.T) {
 				t.Fatalf("expected correctable %q error, got %v", tt.message, err)
 			}
 		})
+	}
+}
+
+func TestCloudAgentCanvasReadIgnoresDefaultDepthWithoutFocus(t *testing.T) {
+	s, db, _, _ := creationTestService(t)
+	if err := db.Create(&model.CanvasProject{
+		ID: "agent-canvas", UserID: "user",
+		PayloadJSON: `{"nodes":[{"id":"note","type":"text","content":"saved content"}]}`,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, arguments := range []string{
+		`{"connectionOffset":0,"depth":1,"focusNodeIds":[],"includeRelated":false,"nodeIds":[],"offset":0,"storyboardOffset":0}`,
+		`{"depth":1,"nodeIds":["note"]}`,
+	} {
+		call := cloudAgentCall{ID: "read-1"}
+		call.Function.Name = "canvas_get_state"
+		call.Function.Arguments = arguments
+		result, err := cloudAgentReadTool(s.repo, "user", &cloudAgentRuntime{Request: agentTestRequest()}, call)
+		if err != nil {
+			t.Fatalf("defaulted read %s failed: %v", arguments, err)
+		}
+		state, ok := result.(map[string]any)
+		if !ok || state["totalNodes"] != 1 || state["snapshotHash"] == nil {
+			t.Fatalf("defaulted read returned an incomplete canvas: %#v", result)
+		}
 	}
 }
 
