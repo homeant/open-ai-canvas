@@ -104,7 +104,9 @@ func cloudAgentHandleCanvasGetState(repo *repository.Repository, userID string, 
 	if depth < 0 || depth > 3 {
 		return nil, &cloudAgentArgumentError{BadAuthRequest("画布读取参数无效：depth 必须为0到3")}
 	}
-	if len(args.FocusNodeIDs) == 0 && args.Depth != nil {
+	// Some models fill optional fields with their advertised defaults. With no
+	// focus nodes, depth 0/1 does not request a graph expansion.
+	if len(args.FocusNodeIDs) == 0 && args.Depth != nil && depth > 1 {
 		return nil, &cloudAgentArgumentError{BadAuthRequest("画布读取参数无效：depth 只能与 focusNodeIds 一起使用")}
 	}
 	includeRelated := args.IncludeRelated != nil && *args.IncludeRelated
