@@ -5,7 +5,7 @@ import { AdminDrawer } from "@/pages/admin/ui/overlays";
 import { Activity, Clipboard, HardDriveUpload, Link2, RefreshCw, Save, Video } from "lucide-react";
 import { formatCredits } from "@/constant/credits";
 import { getAdminApiLog, queryAdminApiLogTask, recoverAdminApiLogTaskMedia, recoverAdminApiLogVideoByURL, type ApiCallLog } from "@/services/api/auth";
-import { videoRecoveryAvailable } from "../logs/log-view";
+import { logStatus, videoRecoveryAvailable } from "../logs/log-view";
 import { ApiLogGenerationContent } from "./api-log-generation-content";
 
 export function ApiLogDetailDrawer({ logId, onClose, onLogUpdated }: { logId: string | null; onClose: () => void; onLogUpdated?: (log: ApiCallLog) => void }) {
@@ -171,10 +171,7 @@ type LogDetailProps = {
 function LogDetail({ log, providerRequestId, videoURL, resultText, querying, onProviderRequestIdChange, onVideoURLChange, onQuery, onRecoverURL, onRecoverMedia }: LogDetailProps) {
     const mediaRecoverable = log.taskStatus === "failed" && Boolean(log.mediaStage) && log.mediaStage !== "completed";
     const refunded = log.billingStatus === "refunded";
-    const providerStatus = log.providerStatus?.toLowerCase();
-    const processing = ["queued", "pending", "processing", "running", "in_progress"].includes(providerStatus || "");
-    const failed = log.status === "failed" || ["failed", "cancelled", "expired"].includes(providerStatus || "");
-    const status = failed ? { label: "失败", tone: "error" as const } : processing ? { label: "处理中", tone: "warning" as const } : { label: "成功", tone: "success" as const };
+    const status = logStatus(log);
 
     return (
         <div className="api-log-detail-body">

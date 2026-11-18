@@ -50,7 +50,7 @@ func TestProviderTerminalStatusReleasesBillingReservation(t *testing.T) {
 			wantStatus: protocol.StatusCancelled, wantErrorCode: "task_cancelled", wantLogError: "任务已被上游取消",
 		},
 		{
-			// 音频轮询日志不合并进 create 根日志；失败原因里的 timeout 是上游自述，不能触发待核对。
+			// 音频失败原因里的 timeout 是上游自述，不能触发待核对。
 			name: "audio failure reason mentions timeout", mode: "audio", taskType: "canvas_audio", interfaceType: "test-terminal-audio",
 			adapter:    terminalStatusTestAdapter(t, "test-terminal-audio", "audio"),
 			createBody: `{"output":{"task_id":"provider-task-1","task_status":"PENDING"}}`,
