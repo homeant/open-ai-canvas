@@ -7,7 +7,7 @@
 <p align="center">让一个故事，从文字走向银幕</p>
 
 <p align="center">
-  <a href="https://github.com/ddcat-ai/open-ai-canvas">GitHub</a> ·
+  <a href="https://github.com/ddcat-ai/open-ai-canvas">官方仓库</a> ·
   <a href="docs/content/docs/overview/features.mdx">功能</a> ·
   <a href="docs/content/docs/overview/quick-start.mdx">文档</a> ·
   <a href="SECURITY.md">安全策略</a>
@@ -25,6 +25,8 @@
 </p>
 
 > 项目仍在快速开发，数据结构和外部接口可能调整。默认适合个人、本地或可信环境部署；未经安全配置，不要直接作为公网多人服务使用。
+
+仓库协作：[ddcat-ai/open-ai-canvas](https://github.com/ddcat-ai/open-ai-canvas) 是官方主仓库。日常代码更新和 Pull Request 默认提交到 [homeant/open-ai-canvas](https://github.com/homeant/open-ai-canvas)；只有明确指定其他目标时才改为向其他仓库提交。
 
 ## 下个版本：影策世界引擎（内测中）
 
