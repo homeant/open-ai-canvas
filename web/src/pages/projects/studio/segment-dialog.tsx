@@ -32,6 +32,8 @@ const PROMPT_NOTICE: Record<DramaSegment["promptStatus"], string> = {
     ready: "",
     stale: "本段镜头或设定改过，提示词已过期，请重新撰写",
     failed: "撰写失败",
+    conflict: "分镜已更新，请核对提示词后确认",
+    review: "AI 新稿已生成，请核对后采用",
 };
 
 const OPERATION_LABEL: Record<DramaSegment["request"]["operation"], string> = {
