@@ -542,7 +542,7 @@ func TestCanonicalAgentBodiesPreserveAssistantToolCalls(t *testing.T) {
 		t.Fatalf("responses input = %#v", responseInput)
 	}
 	functionCall, _ := responseInput[2].(map[string]interface{})
-	if functionCall["type"] != "function_call" || functionCall["name"] != "canvas_get_state" || functionCall["id"] != "fc-5" || functionCall["call_id"] != "call-5" {
+	if functionCall["type"] != "function_call" || functionCall["name"] != "canvas_get_state" || functionCall["id"] != "fc-5" || functionCall["call_id"] != "call-5" || functionCall["item_reference"] != nil {
 		t.Fatalf("responses function call = %#v", functionCall)
 	}
 	if _, has := functionCall["item_reference"]; has {

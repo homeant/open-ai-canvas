@@ -1,12 +1,14 @@
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { App, Button, Checkbox, Divider, Input } from "antd";
-import { Info, TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert, MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { VerificationFields } from "@/components/auth/verification-fields";
+import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { clearReferralCode, readReferralCode, type AuthView } from "@/lib/auth-entry";
-import { getAuthSession, linuxDOLoginURL, login, oidcLoginURL, register, type AuthSettings } from "@/services/api/auth";
+import { getAuthSession, invalidateAuthSessionCache, linuxDOLoginURL, login, oidcLoginURL, register, type AuthSettings } from "@/services/api/auth";
 import { ApiError } from "@/services/api/request";
+import { wechatLoginURL } from "@/services/api/wechat";
 import { emptyVerification, loginVerification, registrationVerificationRequired, verificationMethods, type VerificationMethod } from "@/services/api/verification";
 import { AuthAgreementDialog, AuthNotice, AuthTabs, LinuxDOIcon, authTabId, authTabPanelId, useAuthAgreement } from "./auth-form-parts";
 
@@ -41,9 +43,14 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
     const [registerVerification, setRegisterVerification] = useState({ ...emptyVerification });
     const [chosenRegisterMethod, setChosenRegisterMethod] = useState<VerificationMethod | null>(null);
     const [pending, setPending] = useState<PendingRegistration | null>(null);
+    const [createdAccount, setCreatedAccount] = useState<{ userId: string; successText: string } | null>(null);
+    const submissionRef = useRef(false);
+    const recoveryNoticeRef = useRef<HTMLSpanElement>(null);
     const [agreementAccepted, setAgreementAccepted] = useState(false);
     const [agreementOpen, setAgreementOpen] = useState(false);
     const [retryCountdown, setRetryCountdown] = useState(0);
+    const [turnstileToken, setTurnstileToken] = useState("");
+    const [turnstileResetKey, setTurnstileResetKey] = useState(0);
     // 推广码由登录路由从 ?ref= 写入会话缓存；弹窗与独立页面都从这里读取。
     const [referralCode] = useState(readReferralCode);
     const agreement = useAuthAgreement(settings);
@@ -54,6 +61,7 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
     const canRegister = Boolean(settings && (settings.firstUser || settings.registrationEnabled));
     const showLinuxDO = Boolean(settings?.linuxdoEnabled && !settings.smsAndEmailRegistration && !pending);
     const showOIDC = Boolean(settings?.oidcEnabled && !pending);
+    const showWechat = Boolean(settings?.wechatEnabled && !pending);
     const showAgreement = Boolean(settings && (pending || canRegister || showOIDC));
     const verificationRequired = Boolean(settings && registrationVerificationRequired(settings));
     const registerMethods = settings && verificationRequired ? verificationMethods(settings, "register") : [];
@@ -62,6 +70,7 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
     // 验证方式自带邮箱输入时不再重复显示；短信验证时邮箱作为可选或必填的附加信息。
     const showEmailField = Boolean(pending && pending.accountKind === "username" && registerMethod !== "email" && registerMethod !== "sms_email" && !settings?.firstUser);
     const emailRequired = Boolean(settings?.emailRequired);
+    const turnstileRequired = Boolean(settings?.turnstileEnabled && settings.turnstileSiteKey);
     const methodLabel = (value: LoginMethod) => (value === "password" ? t("auth.login.password") : value === "sms" ? t("auth.login.smsTab") : t("auth.login.emailTab"));
 
     useEffect(() => {
@@ -70,11 +79,23 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
         return () => window.clearInterval(timer);
     }, [retryCountdown]);
 
-    const finish = async (successText: string) => {
+    useEffect(() => {
+        if (createdAccount) recoveryNoticeRef.current?.focus();
+    }, [createdAccount]);
+
+    const finish = async (successText: string, expectedUserId?: string) => {
+        const session = await getAuthSession();
+        if (!session.user?.id || session.user.status !== "active" || (expectedUserId !== undefined && session.user.id !== expectedUserId)) throw new Error(t("auth.login.sessionUnavailable"));
         const { applyUserSession } = await import("@/lib/user-session");
-        await applyUserSession(await getAuthSession());
+        await applyUserSession(session);
         message.success(successText);
         onAuthenticated();
+    };
+
+    const restoreCreatedAccount = async (account: { userId: string; successText: string }) => {
+        // A successful registration must never be repeated because session recovery failed.
+        invalidateAuthSessionCache();
+        await finish(account.successText, account.userId);
     };
 
     const startRegistration = (accountKind: PendingRegistration["accountKind"]) => {
@@ -88,20 +109,29 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
 
     const cancelRegistration = () => {
         setPending(null);
+        setCreatedAccount(null);
         setConfirmPassword("");
         setRegisterVerification({ ...emptyVerification });
     };
 
     const submitLogin = async () => {
         try {
-            if (method === "password") await login({ username: username.trim(), password, autoRegister: canRegister });
+            if (turnstileRequired && !turnstileToken) throw new Error("请完成安全验证");
+            if (method === "password") await login({ username: username.trim(), password, autoRegister: canRegister, turnstileToken: turnstileToken || undefined });
             else {
                 if (!verification.ticket) throw new Error(t("auth.login.needCode"));
-                await loginVerification(verification);
+                await loginVerification({ ...verification, turnstileToken: turnstileToken || undefined });
             }
             await finish(t("auth.login.success"));
         } catch (error) {
             if (error instanceof ApiError && error.reason === "account_not_registered") {
+                // Siteverify tokens are single-use. The failed lookup already
+                // consumed the token, so a follow-up registration needs a new
+                // challenge before it can submit.
+                if (turnstileRequired) {
+                    setTurnstileToken("");
+                    setTurnstileResetKey((value) => value + 1);
+                }
                 startRegistration(error.details?.accountKind === "email" ? "email" : "username");
                 return;
             }
@@ -114,44 +144,83 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
             message.warning(t("auth.register.agreeFirst", { title: agreement.title }));
             return;
         }
+        if (turnstileRequired && !turnstileToken) throw new Error("请完成安全验证");
         if (password !== confirmPassword) throw new Error(t("auth.register.mismatch"));
         if (verificationRequired && !registerVerification.ticket) throw new Error(t("auth.register.needCode"));
         const account = username.trim();
         const contactEmail = current.accountKind === "email" ? account : email.trim();
         if (emailRequired && !settings?.firstUser && !contactEmail && !registerVerification.email) throw new Error(t("auth.login.emailRequired"));
         const contact = verificationRequired ? { ...registerVerification, email: registerVerification.email || contactEmail } : { email: contactEmail };
+        let created: { userId: string; successText: string };
         try {
-            await register({
+            const result = await register({
                 username: current.accountKind === "username" ? account : "",
                 ...contact,
                 password,
                 acceptedTerms: agreementAccepted,
                 ...(referralCode ? { referralCode } : {}),
+                ...(turnstileToken ? { turnstileToken } : {}),
             });
+            created = { userId: result.user?.id || "", successText: settings?.firstUser ? t("auth.register.adminCreated") : t("auth.register.success") };
+            setCreatedAccount(created);
         } catch (error) {
             if (error instanceof ApiError && error.status === 429) setRetryCountdown(Math.max(1, Math.ceil((error.retryAfterMs ?? 60000) / 1000)));
             throw error;
         }
         clearReferralCode();
         if (!settings?.firstUser) window.sessionStorage.setItem("yingce:model-setup-guide", "1");
-        await finish(settings?.firstUser ? t("auth.register.adminCreated") : t("auth.register.success"));
+        await restoreCreatedAccount(created);
     };
 
     const submit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
+        if (submissionRef.current) return;
         if (submitting || retryCountdown > 0) return;
+        submissionRef.current = true;
         setSubmitting(true);
         try {
-            if (pending) await submitRegistration(pending);
+            if (createdAccount) await restoreCreatedAccount(createdAccount);
+            else if (pending) await submitRegistration(pending);
             else await submitLogin();
         } catch (error) {
+            if (turnstileRequired) {
+                setTurnstileToken("");
+                setTurnstileResetKey((value) => value + 1);
+            }
             message.error(error instanceof Error ? error.message : pending ? t("auth.register.failed") : t("auth.login.failed"));
         } finally {
+            submissionRef.current = false;
             setSubmitting(false);
         }
     };
 
     const registrationBlocked = verificationUnavailable;
+
+    if (createdAccount) {
+        return (
+            <form onSubmit={submit} className="auth-form">
+                <AuthNotice icon={<Info className="size-3.5" />} tone="blue">
+                    <span ref={recoveryNoticeRef} role="status" tabIndex={-1}>
+                        {t("auth.login.registrationSessionPending")}
+                    </span>
+                </AuthNotice>
+                <Button type="primary" htmlType="submit" size="large" block loading={submitting} disabled={submitting}>
+                    {t("auth.login.retrySession")}
+                </Button>
+                <Button
+                    size="large"
+                    block
+                    disabled={submitting}
+                    onClick={() => {
+                        cancelRegistration();
+                        setChosenMethod("password");
+                    }}
+                >
+                    {t("auth.register.toLogin")}
+                </Button>
+            </form>
+        );
+    }
 
     return (
         <form onSubmit={submit} className="auth-form">
@@ -269,6 +338,7 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
                     <VerificationFields key={method} purpose="login" method={method} value={verification} onChange={setVerification} disabled={submitting} />
                 )}
             </div>
+            {turnstileRequired ? <TurnstileWidget siteKey={settings?.turnstileSiteKey ?? ""} resetKey={turnstileResetKey} onToken={setTurnstileToken} /> : null}
             {showAgreement ? (
                 <div className="auth-agreement-row" data-accepted={agreementAccepted ? "true" : "false"}>
                     <Checkbox checked={agreementAccepted} onChange={(event) => setAgreementAccepted(event.target.checked)}>
@@ -279,11 +349,11 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
                     </button>
                 </div>
             ) : null}
-            <Button type="primary" htmlType="submit" size="large" block loading={submitting} disabled={registrationBlocked || retryCountdown > 0 || (Boolean(pending) && !agreementAccepted)}>
+            <Button type="primary" htmlType="submit" size="large" block loading={submitting} disabled={registrationBlocked || retryCountdown > 0 || (Boolean(pending) && !agreementAccepted) || (turnstileRequired && !turnstileToken)}>
                 {retryCountdown > 0 ? t("auth.register.retryIn", { seconds: retryCountdown }) : pending ? t("auth.login.createAndLogin") : canRegister && method === "password" ? t("auth.login.submitOrRegister") : t("auth.login.submit")}
             </Button>
             {!pending && canRegister && method === "password" ? <p className="auth-form-switch">{t("auth.login.autoRegisterHint")}</p> : null}
-            {showLinuxDO || showOIDC ? (
+            {showLinuxDO || showOIDC || showWechat ? (
                 <>
                     <Divider plain className="auth-scene-divider auth-form-divider">
                         {t("common.or")}
@@ -297,6 +367,11 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
                     {showOIDC ? (
                         <Button size="large" block href={oidcLoginURL(next, agreementAccepted)}>
                             {t("auth.login.oidc")}
+                        </Button>
+                    ) : null}
+                    {showWechat ? (
+                        <Button size="large" block icon={<MessageCircle className="size-4" aria-hidden="true" />} href={wechatLoginURL(next, agreementAccepted)}>
+                            {t("auth.login.wechat", { defaultValue: "使用微信登录" })}
                         </Button>
                     ) : null}
                 </>

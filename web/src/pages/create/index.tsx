@@ -1,3 +1,4 @@
+import { captureSkillLibraryAccess, hasSkillLibraryAccess, isSkillLibraryAccessCurrent, useSkillLibraryAccess } from "@/lib/skill-access";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Spin } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
@@ -13,6 +14,7 @@ import { isGenerationCostUncertainError } from "@/lib/canvas/canvas-generation-b
 import { imageParameterRequest } from "@/lib/image-parameters";
 import { creationResultAssetIds } from "@/lib/canvas/canvas-asset-handoff";
 import { getActiveUserScope } from "@/lib/user-scope";
+import { audioUploadTitleFromFileName } from "@/lib/audio-upload-title";
 import { continueCreationConversationOnCanvas } from "@/services/creation-canvas-conversation";
 import { useAuthEntry } from "@/hooks/use-auth-entry";
 import { useExternalAssetSources } from "@/hooks/use-external-asset-sources";
@@ -187,6 +189,7 @@ export default function CreatePage() {
     const promptRef = useRef(prompt);
     const attachmentsRef = useRef(attachments);
     const [draftReferences, setDraftReferences] = useState<CreationReference[]>([]);
+    const canUseSkills = useSkillLibraryAccess();
     const [addedSkills, setAddedSkills] = useState<Skill[]>([]);
     const addedSkillsRequestedRef = useRef(false);
     const [ratio, setRatio] = useState("16:9");
@@ -307,7 +310,15 @@ export default function CreatePage() {
         if (typeof width !== "number" || typeof height !== "number" || width <= 0 || height <= 0) return undefined;
         return { width, height };
     }, [attachments]);
-    const mentionReferences = useMemo(() => buildCreationMentionReferences(addedSkills, attachments, draftReferences), [addedSkills, attachments, draftReferences]);
+    const mentionReferences = useMemo(
+        () =>
+            buildCreationMentionReferences(
+                canUseSkills ? addedSkills : [],
+                attachments,
+                draftReferences.filter((reference) => canUseSkills || (reference.kind !== "skill" && !reference.skill)),
+            ),
+        [addedSkills, attachments, draftReferences, canUseSkills],
+    );
     const isEmpty = !activeConversation?.messages.length;
 
     // 空首页从顶部开始；有消息的对话由跟随消息逻辑管理滚动。
@@ -493,12 +504,19 @@ export default function CreatePage() {
         [],
     );
 
+    useEffect(() => {
+        setAddedSkills([]);
+        addedSkillsRequestedRef.current = false;
+    }, [canUseSkills, userId]);
     const loadAddedSkills = useCallback(() => {
-        if (addedSkillsRequestedRef.current) return;
+        const access = captureSkillLibraryAccess();
+        if (!access || addedSkillsRequestedRef.current) return;
         addedSkillsRequestedRef.current = true;
         void import("@/services/api/skills")
             .then(({ listAddedSkills }) => listAddedSkills())
-            .then(({ skills }) => setAddedSkills(skills))
+            .then(({ skills }) => {
+                if (isSkillLibraryAccessCurrent(access)) setAddedSkills(skills);
+            })
             .catch(() => setAddedSkills([]));
     }, []);
 
@@ -772,7 +790,7 @@ export default function CreatePage() {
         if (file.type.startsWith("audio/")) {
             const uploaded = await uploadMediaFile(file, "create-upload");
             return {
-                asset: creationAudioAsset({ title: file.name, uploaded, metadata: { source: "create-upload", fileName: file.name } }),
+                asset: creationAudioAsset({ title: audioUploadTitleFromFileName(file.name), uploaded, metadata: { source: "create-upload", fileName: file.name } }),
                 attachment: creationAttachmentFromAudio(file, uploaded),
             };
         }
@@ -961,7 +979,7 @@ export default function CreatePage() {
             audioCount: referenceAudios.length,
             characterCount: 0,
         });
-        const skillReferences = references.flatMap((reference) => (reference.skill ? [reference.skill] : []));
+        const skillReferences = hasSkillLibraryAccess() ? references.flatMap((reference) => (reference.skill ? [reference.skill] : [])) : [];
         let runtime: CreationRuntime;
         try {
             runtime = await loadCreationRuntime();
