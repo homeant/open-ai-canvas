@@ -32,6 +32,8 @@ const PROMPT_NOTICE: Record<DramaSegment["promptStatus"], string> = {
     ready: "",
     stale: "本段镜头或设定改过，提示词已过期，请重新撰写",
     failed: "撰写失败",
+    conflict: "分镜已更新，请核对提示词后确认",
+    review: "AI 新稿已生成，请核对后采用",
 };
 
 const OPERATION_LABEL: Record<DramaSegment["request"]["operation"], string> = {
@@ -369,7 +371,12 @@ function SegmentReceipt({ segment }: { segment: DramaSegment }) {
     const references = request.references.length;
     const sent = request.references.filter((ref) => ref.sent).length;
     const first = segment.index === 0 && !request.firstFrameResourceId && !request.firstFramePending;
-    const promptText = segment.custom ? "已手动改写" : { none: "未撰写", queued: "排队撰写", running: "撰写中", ready: "已就绪", stale: "已过期，需要重新撰写", failed: "撰写失败" }[segment.promptStatus];
+    const promptText =
+        segment.promptStatus === "conflict" || segment.promptStatus === "review"
+            ? "需要核对"
+            : segment.custom
+              ? "已手动改写"
+              : { none: "未撰写", queued: "排队撰写", running: "撰写中", ready: "已就绪", stale: "已过期，需要重新撰写", failed: "撰写失败" }[segment.promptStatus];
     // 读到视频模型能力时才有画面与声音参数（aspectRatio 与它们一起填写）。
     const outputRows: ReceiptRow[] = request.aspectRatio
         ? [
@@ -378,7 +385,7 @@ function SegmentReceipt({ segment }: { segment: DramaSegment }) {
                   label: "画面",
                   value: request.resolution ? `${request.aspectRatio}（按 ${request.resolution} 出片）` : request.size ? request.aspectRatio : `${request.aspectRatio}（所选模型给不出这个画幅）`,
               },
-              { tone: request.generateAudio ? "ok" : "warn", label: "声音", value: request.generateAudio ? "模型同步生成对白与音效" : "所选模型不出声，本段视频没有对白与音效" },
+              { tone: request.generateAudio ? "ok" : "warn", label: "声音能力", value: request.generateAudio ? "模型声明支持同步音频；对白质量需验收" : "模型未声明同步音频能力；实际音轨与人声需检查，可能需要后期配音" },
           ]
         : [];
     const rows: ReceiptRow[] = [

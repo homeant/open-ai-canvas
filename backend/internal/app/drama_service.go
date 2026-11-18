@@ -895,6 +895,7 @@ func (s *Service) fillDramaSegmentViews(projectID string, p *model.DramaProducti
 		}
 		request, _, _, prepareErr := s.prepareDramaSegment(settings, draft, rows[i], previous, castByID)
 		if prepareErr != nil {
+			request.PreparationError = prepareErr.Error()
 			request.Warning = prepareErr.Error()
 			// 视频模型下线、时长超限等会让预演在列参考图前返回。镜头里的设定引用仍在，照常列出并标为未发送；
 			// 否则制作台看起来像资产引用丢了，在参考面板勾选候选还会把本段存成只含该项的手动列表。
@@ -1009,7 +1010,7 @@ func buildDramaSegmentDrafts(settings DramaSettings, meta dramaBibleMeta, shots 
 			if _, ok := castByID[shot.SceneCastID]; ok && !containsString(sceneIDs, shot.SceneCastID) {
 				sceneIDs = append(sceneIDs, shot.SceneCastID)
 			}
-			input.Shots = append(input.Shots, production.SegmentShot{Scene: shot.Scene, ShotSize: shot.ShotSize, Camera: shot.Camera, ImagePrompt: shot.ImagePrompt, Action: shot.Action, VideoPrompt: shot.VideoPrompt, Speaker: shot.Speaker, Dialogue: shot.Dialogue, DurationMs: shot.DurationMs, Transition: settings.Storyboard.EffectiveTransition(shot.Transition, shot.Position == 0)})
+			input.Shots = append(input.Shots, production.SegmentShot{Scene: shot.Scene, ShotSize: shot.ShotSize, Camera: shot.Camera, ImagePrompt: shot.ImagePrompt, Action: shot.Action, VideoPrompt: shot.VideoPrompt, Speaker: shot.Speaker, Dialogue: shot.Dialogue, DialogueMode: shot.DialogueMode, DurationMs: shot.DurationMs, Transition: settings.Storyboard.EffectiveTransition(shot.Transition, shot.Position == 0)})
 		}
 		referenceIDs := append(append(characterIDs, propIDs...), sceneIDs...)
 		view.ReferenceMode = "auto"
@@ -1058,9 +1059,12 @@ func buildDramaSegmentViews(settings DramaSettings, meta dramaBibleMeta, shots [
 	views := make([]DramaSegmentView, 0, len(drafts))
 	for _, draft := range drafts {
 		view := draft.view
+		view.ShotRevision = dramaShotRevision(shots, view.Index)
 		view.AudioReferenceMode = "auto"
 		view.PromptStatus = "none"
 		if row, ok := rowByIndex[view.Index]; ok {
+			view.PromptRevision, view.PromptShotRevision, view.CandidateID, view.CandidateShotRevision = row.PromptRevision, row.PromptShotRevision, row.CandidateID, row.CandidateShotRevision
+			view.PromptSeconds = row.PromptSeconds
 			if strings.TrimSpace(row.AudioCastIDsJSON) != "" {
 				view.AudioReferenceMode = "custom"
 			}

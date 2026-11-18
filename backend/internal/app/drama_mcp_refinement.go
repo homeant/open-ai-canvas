@@ -20,11 +20,12 @@ import (
 )
 
 type DramaSegmentDetailResult struct {
-	Segment       DramaSegmentView                   `json:"segment"`
-	Shots         []model.DramaShot                  `json:"shots"`
-	PromptHistory []model.DramaSegmentPromptRevision `json:"promptHistory"`
-	VideoVersions []DramaTakeView                    `json:"videoVersions"`
-	LastVideoJob  *DramaJobDetail                    `json:"lastVideoJob,omitempty"`
+	EpisodeRevision string                             `json:"episodeRevision"`
+	Segment         DramaSegmentView                   `json:"segment"`
+	Shots           []model.DramaShot                  `json:"shots"`
+	PromptHistory   []model.DramaSegmentPromptRevision `json:"promptHistory"`
+	VideoVersions   []DramaTakeView                    `json:"videoVersions"`
+	LastVideoJob    *DramaJobDetail                    `json:"lastVideoJob,omitempty"`
 }
 
 // DramaSegmentDetail 限定 MCP 响应为单段，段请求预演与全集详情共用同一计算路径。
@@ -55,6 +56,7 @@ func (s *Service) DramaSegmentDetail(userID, projectID, episodeID string, index 
 			return DramaSegmentDetailResult{}, err
 		}
 		result := DramaSegmentDetailResult{Segment: segment, Shots: shots, PromptHistory: history, VideoVersions: listed["takes"].([]DramaTakeView)}
+		result.EpisodeRevision = dramaShotRevision(detail.Shots, -1)
 		if segment.VideoJob != nil {
 			job, err := s.DramaJobDetail(userID, projectID, segment.VideoJob.ID)
 			if err != nil {

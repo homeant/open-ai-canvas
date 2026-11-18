@@ -5,6 +5,14 @@ description: 影策后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 短剧 MCP 编辑事务（Schema 109）
+
+版本 109 新增 `drama_mutation_receipts`：保存作品／剧集归属、账号与命令作用域的幂等键哈希、请求哈希、原响应 JSON 和创建时间；不保存原始幂等键。回执与原文、整批镜头或提示词写入在同一事务提交，删除剧集／作品时清理回执。SQLite → PostgreSQL 迁移清单同步登记该表。
+
+`drama_shots.dialogue_mode` 保存 `dialogue/inner_monologue/voice_over/silent` 语义，旧空值按普通对白处理。`drama_segments` 新增 `candidate_id/candidate_shot_revision`、`prompt_shot_revision/prompt_revision`、`require_prompt_adoption` 和可选 `prompt_model_json`，分别关联待采用稿、已核对稿、显式采用关口及重写文本模型。`drama_takes` 新增 `shot_revision/prompt_revision/generation_json`，保存视频生成时的分镜内容版本、提示词版本及实际请求参数；历史缺值保持未知，不做无法证明的回填。
+
+原文和分镜内容版本是按有序内容计算的 SHA-256，不占用既有段／集整数 `revision`，也不依赖网页写路径额外递增。详见 [短剧 MCP 剧本与分镜编辑](/docs/backend/drama-mcp-editing)。
+
 ## 短剧段提示词人工修订（Schema 104）
 
 版本 104 新增 `drama_segment_prompt_revisions`，以 `(segment_id, revision)` 唯一标识一次人工提示词保存，记录作品 ID、完整提示词和创建时间。迁移把已有 `drama_segments.video_prompt_override` 作为当前人工修订补录；此后每次不同的手工改写在段状态失效的同一事务内追加历史。模型生成稿继续保存在 `drama_segments.video_prompt`，视频产物版本继续保存在 `drama_takes`；编辑提示词不会覆盖两者或创建任务。删除一集时同步清理本集的提示词历史。

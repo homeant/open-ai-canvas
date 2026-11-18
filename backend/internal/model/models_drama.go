@@ -177,6 +177,7 @@ type DramaShot struct {
 	// 空表示各角色用本集默认造型或本体。取参考图时用这里的造型行外观与参考图替换角色本体。
 	LookCastIDsJSON string `json:"lookCastIdsJson" gorm:"type:text"`
 	Speaker         string `json:"speaker" gorm:"size:120"`
+	DialogueMode    string `json:"dialogueMode" gorm:"size:24"`
 	Dialogue        string `json:"dialogue" gorm:"type:text"`
 	Action          string `json:"action" gorm:"type:text"`
 	ShotSize        string `json:"shotSize" gorm:"size:40"`
@@ -194,13 +195,22 @@ type DramaShot struct {
 
 // DramaSegment 是视频生成单位：一段一次调用视频模型，台词、音效与镜头切换都由视频模型在一个视频里完成。
 // 段由镜头的 SegmentIndex 决定，重新改编剧本时随镜头一起重建。
+const DramaPromptConflict = "conflict"
+const DramaPromptReview = "review"
+
 type DramaSegment struct {
-	PromptSeconds int    `json:"promptSeconds"`
-	Revision      int64  `json:"revision"`
-	ID            string `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID     string `json:"projectId" gorm:"index;size:36"`
-	EpisodeID     string `json:"episodeId" gorm:"size:36;uniqueIndex:idx_drama_segments_episode_index,priority:1"`
-	SegmentIndex  int    `json:"segmentIndex" gorm:"uniqueIndex:idx_drama_segments_episode_index,priority:2"`
+	RequirePromptAdoption bool   `json:"requirePromptAdoption"`
+	PromptModelJSON       string `json:"-" gorm:"type:text"`
+	CandidateID           string `json:"candidateId" gorm:"size:36"`
+	CandidateShotRevision string `json:"candidateShotRevision" gorm:"size:64"`
+	PromptShotRevision    string `json:"promptShotRevision" gorm:"size:64"`
+	PromptRevision        int64  `json:"promptRevision"`
+	PromptSeconds         int    `json:"promptSeconds"`
+	Revision              int64  `json:"revision"`
+	ID                    string `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID             string `json:"projectId" gorm:"index;size:36"`
+	EpisodeID             string `json:"episodeId" gorm:"size:36;uniqueIndex:idx_drama_segments_episode_index,priority:1"`
+	SegmentIndex          int    `json:"segmentIndex" gorm:"uniqueIndex:idx_drama_segments_episode_index,priority:2"`
 	// VideoPrompt 是文本模型按镜头表撰写的完整视频提示词；PromptStatus 为空表示待撰写。
 	VideoPrompt  string `json:"videoPrompt" gorm:"type:text"`
 	PromptStatus string `json:"promptStatus" gorm:"size:16;index"`
@@ -242,16 +252,19 @@ type DramaReferenceImage struct {
 
 // DramaTake 保存每个产物的全部版本：角色/场景参考图（cast）、剧情段视频（video）与成片（final）。
 type DramaTake struct {
-	ID         string    `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID  string    `json:"projectId" gorm:"index;size:36"`
-	OwnerID    string    `json:"ownerId" gorm:"size:36;index:idx_drama_takes_owner_kind,priority:1"`
-	Kind       string    `json:"kind" gorm:"size:16;index:idx_drama_takes_owner_kind,priority:2"`
-	Version    int       `json:"version"`
-	ResourceID string    `json:"resourceId" gorm:"size:36"`
-	TaskID     string    `json:"taskId" gorm:"size:36"`
-	Prompt     string    `json:"prompt" gorm:"type:text"`
-	DurationMs int64     `json:"durationMs"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ShotRevision   string    `json:"shotRevision" gorm:"size:64"`
+	PromptRevision int64     `json:"promptRevision"`
+	GenerationJSON string    `json:"generationJson" gorm:"type:text"`
+	ID             string    `json:"id" gorm:"primaryKey;size:36"`
+	ProjectID      string    `json:"projectId" gorm:"index;size:36"`
+	OwnerID        string    `json:"ownerId" gorm:"size:36;index:idx_drama_takes_owner_kind,priority:1"`
+	Kind           string    `json:"kind" gorm:"size:16;index:idx_drama_takes_owner_kind,priority:2"`
+	Version        int       `json:"version"`
+	ResourceID     string    `json:"resourceId" gorm:"size:36"`
+	TaskID         string    `json:"taskId" gorm:"size:36"`
+	Prompt         string    `json:"prompt" gorm:"type:text"`
+	DurationMs     int64     `json:"durationMs"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 // DramaJob 是调度队列中的一项工作；任务创建延迟到派发时，保证使用最新数据。

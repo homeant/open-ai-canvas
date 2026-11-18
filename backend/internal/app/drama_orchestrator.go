@@ -1490,14 +1490,20 @@ func (r *dramaRun) submitSegmentPrompt(job *model.DramaJob) (*model.Task, bool, 
 		}
 		// 文本模型数字数常常超出要求，写作目标比硬上限再留一成；硬上限在结果回写时校验。
 		draft.input.MaxChars = maxChars * 9 / 10
-		payload, _ := json.Marshal(dramaRevisionPayload{Revision: segment.Revision, Seconds: seconds, MaxChars: maxChars})
+		payload, _ := json.Marshal(dramaRevisionPayload{Revision: segment.Revision, Seconds: seconds, MaxChars: maxChars, ShotRevision: dramaShotRevision(shots, segment.SegmentIndex)})
 		job.PayloadJSON = string(payload)
 		skill, err := r.s.dramaWritingSkill(r.project.UserID, r.settings.PromptSkill, "视频提示词")
 		if err != nil {
 			return nil, false, err
 		}
 		prompt := production.SegmentWriterPrompt(draft.input, production.SegmentVideoPrompt(draft.input), previous, skill)
-		task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepPrompt), "text", "text", prompt, r.textInput(job, production.SegmentWriterSystemPrompt(), DramaStepPrompt))
+		choice := r.settings.Models.textFor(DramaStepPrompt)
+		if segment.PromptModelJSON != "" {
+			if err := json.Unmarshal([]byte(segment.PromptModelJSON), &choice); err != nil {
+				return nil, false, err
+			}
+		}
+		task, err := r.createTaskWith(job, choice, "text", "text", prompt, r.textInput(job, production.SegmentWriterSystemPrompt(), DramaStepPrompt))
 		return task, false, err
 	}
 	return nil, true, nil
@@ -1554,7 +1560,19 @@ func (r *dramaRun) applySegmentPrompt(job *model.DramaJob, task *model.Task) err
 		}
 		return &dramaResultIssue{message: fmt.Sprintf("视频提示词 %d 个字符，自动精简 %d 次后仍超过本段上限 %d 个字符（视频模型上限减去开头的参考图说明）；请手动精简后保存，或重新撰写", chars, payload.Condensed, payload.MaxChars)}
 	}
-	_, err = r.s.repo.UpdateDramaSegmentRevision(job.ShotID, payload.Revision, map[string]any{"video_prompt": truncateRunes(prompt, 12000), "prompt_status": model.DramaMediaReady, "prompt_error": "", "prompt_seconds": payload.Seconds})
+	fields := map[string]any{"video_prompt": truncateRunes(prompt, 12000), "prompt_status": model.DramaMediaReady, "prompt_error": "", "prompt_seconds": payload.Seconds}
+	current, err := r.s.repo.DramaSegment(r.project.ID, job.ShotID)
+	if err != nil {
+		return err
+	}
+	fields["candidate_id"], fields["candidate_shot_revision"] = task.ID, payload.ShotRevision
+	if strings.TrimSpace(current.VideoPromptOverride) != "" || current.RequirePromptAdoption {
+		fields["prompt_status"] = model.DramaPromptReview
+		fields["prompt_error"] = "AI 新稿已生成，原手写内容仍保留。可采用 AI 版本，或核对后确认使用当前提示词。"
+	} else {
+		fields["prompt_shot_revision"], fields["prompt_revision"] = payload.ShotRevision, current.PromptRevision+1
+	}
+	_, err = r.s.repo.UpdateDramaSegmentRevision(job.ShotID, payload.Revision, fields)
 	return err
 }
 
@@ -1577,7 +1595,13 @@ func (r *dramaRun) condenseSegmentPrompt(job *model.DramaJob, payload dramaRevis
 	payload.Condensed++
 	encoded, _ := json.Marshal(payload)
 	job.PayloadJSON = string(encoded)
-	task, err := r.createTaskWith(job, r.settings.Models.textFor(DramaStepPrompt), "text", "text", production.SegmentCondensePrompt(prompt, payload.MaxChars), r.textInput(job, production.SegmentCondenseSystemPrompt(), DramaStepPrompt))
+	choice := r.settings.Models.textFor(DramaStepPrompt)
+	if segment.PromptModelJSON != "" {
+		if err := json.Unmarshal([]byte(segment.PromptModelJSON), &choice); err != nil {
+			return err
+		}
+	}
+	task, err := r.createTaskWith(job, choice, "text", "text", production.SegmentCondensePrompt(prompt, payload.MaxChars), r.textInput(job, production.SegmentCondenseSystemPrompt(), DramaStepPrompt))
 	if err != nil {
 		job.PayloadJSON = previousPayload
 		if errors.Is(err, repository.ErrDramaJobChanged) {
