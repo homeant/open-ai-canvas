@@ -113,6 +113,14 @@ func (r *Repository) VoiceProfileForUser(userID string, id string) (*model.Voice
 	return &profile, nil
 }
 
+func (r *Repository) VoiceProfileByProviderKey(userID, provider, key string) (*model.VoiceProfile, error) {
+	var profile model.VoiceProfile
+	if err := r.db.First(&profile, "user_id = ? AND provider = ? AND voice_key = ?", userID, provider, key).Error; err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
 func (r *Repository) VoiceProfiles(userID string) ([]model.VoiceProfile, error) {
 	var profiles []model.VoiceProfile
 	err := r.db.Where("user_id = ? AND status = ?", userID, "active").Order("created_at asc").Find(&profiles).Error

@@ -9,6 +9,10 @@ description: 当前项目已实现的核心工作台能力与使用入口
 
 角色四格默认模板保留角色外貌、画风、四格版式和声纹条，不附加全剧场景年代与空间规则。已有作品只在模板逐字等于旧默认值时更新；用户手写模板和单独填写的角色完整提示词保持原文。
 
+## Agent 音色与角色声音绑定
+
+Agent 可从模型目录选择 Qwen 系统音色并单独设置声音指令，在审批卡片核对实际生成参数。已就绪的试听音频可绑定到当前画布已有角色卡；即使使用自动模式也需要明确批准，绑定后创建新的角色资产版本。固定旧版本的角色卡与会过期的自定义音色不能直接绑定。
+
 ## 音频模型接入
 
 `minimax-speech` 插件提供 Speech 2.8、2.6、02 六个 HD／Turbo 模型；`evolink-seed-audio` 插件提供豆包 Seed Audio 1.0 与 Qwen Audio 3.1 TTS Flash。画布音频设置按协议提供音色、输出格式、语速和声音指令。Seed Audio 支持最多三段参考音频，Qwen TTS 支持输入／输出 Token 定价与上游实际用量结算。配置见 [MiniMax 语音合成](/docs/backend/minimax-speech) 与 [EvoLink 音频模型](/docs/backend/evolink-seed-audio)。

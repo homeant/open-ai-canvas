@@ -1087,7 +1087,7 @@ export function ApprovalCard({
                 <button
                     type="button"
                     className="canvas-agent-approval-approve"
-                    disabled={submitting || Boolean(blockedReason) || Boolean(targetGenerating) || Boolean(settingsError)}
+                    disabled={submitting || Boolean(blockedReason) || Boolean(targetGenerating) || Boolean(settingsError) || !action.items.length}
                     onClick={() => {
                         if (!settingsError) onApprove(mediaSettings);
                     }}
@@ -1116,13 +1116,15 @@ export function ApprovalPreviewItemView({ item, theme, onFocusNode }: { item: Re
                       ? "修改分镜"
                       : item.operation === "create_character"
                         ? "创建角色卡"
-                        : item.operation === "plan_step"
-                          ? "计划"
-                          : item.operation === "adopt_drama_media"
-                            ? "采用到短剧"
-                            : item.operation === "build_board"
-                              ? "搭建看板"
-                              : "生成";
+                        : item.operation === "bind_character_voice"
+                          ? "绑定声音"
+                          : item.operation === "plan_step"
+                            ? "计划"
+                            : item.operation === "adopt_drama_media"
+                              ? "采用到短剧"
+                              : item.operation === "build_board"
+                                ? "搭建看板"
+                                : "生成";
     const renderNode = (title: string | undefined, id: string | undefined, typeLabel: string | undefined, role: "source" | "target" | "node") => {
         if (!title) return null;
         const content = (
