@@ -128,8 +128,8 @@ func TestDramaCastImagePromptPreviewAndStyles(t *testing.T) {
 		t.Fatalf("pointer fields must clear: %+v %v", cleared, err)
 	}
 	inherited := buildDramaCastImagePrompt(parseDramaSettings(row.SettingsJSON), parseDramaBibleMeta(row.BibleJSON), cleared)
-	if !strings.Contains(inherited, "玄幻") || !strings.Contains(inherited, "仙气") {
-		t.Fatal("cleared style must inherit work")
+	if !strings.Contains(inherited, "玄幻") || strings.Contains(inherited, "仙气") {
+		t.Fatal("cleared style must inherit work style without story-wide rules")
 	}
 	if _, err := svc.PreviewDramaCastImagePrompt("someone", project, look.ID, DramaCastImagePromptRequest{}); err == nil {
 		t.Fatal("preview ownership required")
