@@ -87,7 +87,7 @@ func (s *Service) GetExternalPrevisRender(userID string, req ExternalPrevisReadR
 		return nil, err
 	}
 	scene, ok := findPrevisScene(creationMaps(doc["previsScenes"]), req.SceneID)
-	if !ok || (stringValue(scene["episodeId"]) != "" && stringValue(scene["episodeId"]) != req.EpisodeID) {
+	if !ok || (req.EpisodeID != "" && stringValue(scene["episodeId"]) != "" && stringValue(scene["episodeId"]) != req.EpisodeID) {
 		return nil, BadAuthRequest("预演场景不存在或属于其他剧集")
 	}
 	shot, ok := findPrevisShot(scene, req.ShotID)

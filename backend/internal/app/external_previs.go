@@ -11,16 +11,17 @@ import (
 )
 
 type ExternalPrevisScope struct {
-	DramaID   string `json:"dramaId"`
-	EpisodeID string `json:"episodeId"`
+	DramaID   string `json:"dramaId,omitempty"`
+	EpisodeID string `json:"episodeId,omitempty"`
 	CanvasID  string `json:"canvasId,omitempty"`
 }
 
 type ExternalPrevisReadRequest struct {
-	DramaID           string   `json:"dramaId"`
-	EpisodeID         string   `json:"episodeId"`
+	DramaID           string   `json:"dramaId,omitempty"`
+	EpisodeID         string   `json:"episodeId,omitempty"`
 	CanvasID          string   `json:"canvasId,omitempty"`
-	SceneID           string   `json:"sceneId"`
+	SceneID           string   `json:"sceneId,omitempty"`
+	NodeID            string   `json:"nodeId,omitempty"`
 	ShotID            string   `json:"shotId,omitempty"`
 	ObjectIDs         []string `json:"objectIds,omitempty"`
 	IncludeTransforms bool     `json:"includeTransforms,omitempty"`
@@ -40,14 +41,15 @@ type ExternalPrevisCreateRequest struct {
 type ExternalPrevisPatchOperation = cloudAgentPrevisPatchOperation
 
 type ExternalPrevisPatchRequest struct {
-	DramaID        string                         `json:"dramaId"`
-	EpisodeID      string                         `json:"episodeId"`
-	CanvasID       string                         `json:"canvasId,omitempty"`
-	SceneID        string                         `json:"sceneId"`
-	SnapshotHash   string                         `json:"snapshotHash"`
-	IdempotencyKey string                         `json:"idempotencyKey"`
-	Operations     []ExternalPrevisPatchOperation `json:"operations"`
-	DryRun         bool                           `json:"dryRun,omitempty"`
+	DramaID          string                         `json:"dramaId,omitempty"`
+	EpisodeID        string                         `json:"episodeId,omitempty"`
+	CanvasID         string                         `json:"canvasId,omitempty"`
+	SceneID          string                         `json:"sceneId"`
+	SnapshotHash     string                         `json:"snapshotHash"`
+	ExpectedRevision *int64                         `json:"expectedRevision,omitempty"`
+	IdempotencyKey   string                         `json:"idempotencyKey"`
+	Operations       []ExternalPrevisPatchOperation `json:"operations"`
+	DryRun           bool                           `json:"dryRun,omitempty"`
 }
 
 type ExternalPrevisPreviewRequest struct {
@@ -61,6 +63,18 @@ type ExternalPrevisPreviewRequest struct {
 }
 
 func (s *Service) externalPrevisCanvases(userID string, scope ExternalPrevisScope) ([]model.CanvasProject, error) {
+	if scope.CanvasID != "" && scope.DramaID == "" {
+		canvas, err := s.repo.CanvasProjectForUser(userID, scope.CanvasID)
+		if err != nil {
+			return nil, dramaLookupError(err)
+		}
+		if scope.EpisodeID != "" {
+			if _, err := s.repo.DramaEpisode(canvas.ProjectID, scope.EpisodeID); err != nil {
+				return nil, dramaLookupError(err)
+			}
+		}
+		return []model.CanvasProject{*canvas}, nil
+	}
 	if scope.DramaID == "" || scope.EpisodeID == "" {
 		return nil, BadAuthRequest("预演台操作需要 dramaId 和 episodeId")
 	}
@@ -126,7 +140,7 @@ func (s *Service) ListExternalPrevisScenes(userID string, scope ExternalPrevisSc
 		canvasItems = append(canvasItems, map[string]any{"canvasId": canvas.ID, "title": canvas.Title, "revision": full.Revision, "canvasSnapshotHash": cloudAgentCanvasHash(doc)})
 		for _, scene := range creationMaps(doc["previsScenes"]) {
 			bound := stringValue(scene["episodeId"])
-			if bound != "" && bound != scope.EpisodeID {
+			if bound != "" && scope.EpisodeID != "" && bound != scope.EpisodeID {
 				continue
 			}
 			sceneID := stringValue(scene["id"])
@@ -156,6 +170,23 @@ func (s *Service) GetExternalPrevisScene(userID string, req ExternalPrevisReadRe
 	canvas, err := s.externalPrevisCanvas(userID, ExternalPrevisScope{req.DramaID, req.EpisodeID, req.CanvasID})
 	if err != nil {
 		return nil, err
+	}
+	if req.NodeID != "" {
+		doc, err := creationDocument(canvas.PayloadJSON)
+		if err != nil {
+			return nil, err
+		}
+		var sceneID string
+		for _, node := range creationMaps(doc["nodes"]) {
+			if stringValue(node["id"]) == req.NodeID {
+				meta, _ := node["metadata"].(map[string]any)
+				sceneID = stringValue(meta["previsSceneId"])
+			}
+		}
+		if sceneID == "" || (req.SceneID != "" && sceneID != req.SceneID) {
+			return nil, BadAuthRequest("预演节点不存在或与 sceneId 不匹配")
+		}
+		req.SceneID = sceneID
 	}
 	call, err := externalPrevisCall("previs_scene_read", map[string]any{"sceneId": req.SceneID, "episodeId": req.EpisodeID, "shotId": req.ShotID, "objectIds": req.ObjectIDs, "includeTransforms": req.IncludeTransforms})
 	if err != nil {
@@ -188,7 +219,7 @@ func externalPrevisKey(value string) error {
 	return nil
 }
 
-func (s *Service) externalPrevisWrite(userID, canvasID, key, digest string, call cloudAgentCall, dryRun bool) (map[string]any, error) {
+func (s *Service) externalPrevisWrite(userID, canvasID, key, digest string, call cloudAgentCall, dryRun bool, expectedRevision ...*int64) (map[string]any, error) {
 	if dryRun {
 		var plan *cloudAgentPrevisMutationPlan
 		var err error
@@ -229,6 +260,15 @@ func (s *Service) externalPrevisWrite(userID, canvasID, key, digest string, call
 				return creationConflict("预演操作仍在进行，请稍后重试")
 			}
 			return json.Unmarshal([]byte(previous.ResultJSON), &result)
+		}
+		if len(expectedRevision) > 0 && expectedRevision[0] != nil {
+			current, err := tx.CanvasProjectForUser(userID, canvasID)
+			if err != nil {
+				return err
+			}
+			if current.Revision != *expectedRevision[0] {
+				return creationConflict("画布 revision 已变化，请重新读取预演场景")
+			}
 		}
 		value, err := applyCloudAgentPrevisMutation(tx, userID, canvasID, call, policy)
 		if err != nil {
@@ -308,7 +348,10 @@ func (s *Service) ApplyExternalPrevisPatch(userID string, req ExternalPrevisPatc
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.externalPrevisWrite(userID, canvas.ID, req.IdempotencyKey, externalPrevisDigest([]any{"patch", req.EpisodeID, args}), call, req.DryRun)
+	if req.DryRun && req.ExpectedRevision != nil && canvas.Revision != *req.ExpectedRevision {
+		return nil, creationConflict("画布 revision 已变化，请重新读取预演场景")
+	}
+	result, err := s.externalPrevisWrite(userID, canvas.ID, req.IdempotencyKey, externalPrevisDigest([]any{"patch", req.EpisodeID, args, req.ExpectedRevision}), call, req.DryRun, req.ExpectedRevision)
 	if err != nil {
 		return nil, err
 	}

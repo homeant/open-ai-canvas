@@ -21,8 +21,8 @@ import (
 )
 
 type ExternalPrevisRenderRequest struct {
-	DramaID        string   `json:"dramaId"`
-	EpisodeID      string   `json:"episodeId"`
+	DramaID        string   `json:"dramaId,omitempty"`
+	EpisodeID      string   `json:"episodeId,omitempty"`
 	CanvasID       string   `json:"canvasId,omitempty"`
 	SceneID        string   `json:"sceneId"`
 	ShotID         string   `json:"shotId"`
@@ -115,7 +115,7 @@ func (s *Service) RenderExternalPrevis(ctx context.Context, userID string, req E
 		return nil, err
 	}
 	scene, ok := findPrevisScene(creationMaps(doc["previsScenes"]), req.SceneID)
-	if !ok || (stringValue(scene["episodeId"]) != "" && stringValue(scene["episodeId"]) != req.EpisodeID) {
+	if !ok || (req.EpisodeID != "" && stringValue(scene["episodeId"]) != "" && stringValue(scene["episodeId"]) != req.EpisodeID) {
 		return nil, BadAuthRequest("预演场景不存在或属于其他剧集")
 	}
 	if req.SnapshotHash == "" || creationHash(scene) != req.SnapshotHash {
@@ -244,7 +244,7 @@ func (s *Service) RenderExternalPrevis(ctx context.Context, userID string, req E
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]any{"status": "ready", "sceneId": req.SceneID, "shotId": req.ShotID, "resourceId": resource.ID, "kind": req.Kind, "mimeType": resource.MimeType, "bytes": resource.Size, "snapshotHash": published["snapshotHash"], "canvasSnapshotHash": published["canvasSnapshotHash"]}
+	result := map[string]any{"status": "ready", "canvasId": canvas.ID, "sceneId": req.SceneID, "shotId": req.ShotID, "time": numberValue(payload["time"], 0), "resourceId": resource.ID, "kind": req.Kind, "mimeType": resource.MimeType, "bytes": resource.Size, "snapshotHash": published["snapshotHash"], "canvasSnapshotHash": published["canvasSnapshotHash"]}
 	err = s.repo.Transaction(func(tx *repository.Repository) error {
 		receipt := &model.CanvasMutationReceipt{ID: newID(), UserID: userID, CanvasID: canvas.ID, MutationID: mutationID, PayloadDigest: digest}
 		created, err := tx.TryCreateCanvasMutationReceipt(receipt)

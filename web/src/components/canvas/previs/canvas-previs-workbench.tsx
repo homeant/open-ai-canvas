@@ -1,5 +1,6 @@
 import { cameraMoveOptions, poseEditBones, BoneRotationFields, shotSizeOptions, ObjectInspector, LightInspector, ShotInspector } from "./previs-inspectors";
 import { snapPrevisTime, advancePrevisPlayhead, resolvePrevisKeyframeRecord, resolvePrevisObjectTransformEdit, resolvePrevisCameraMoveKeyframes, resolvePrevisCameraAlignment } from "@/lib/canvas/previs/previs-animation-semantics";
+import { applyPrevisShotEdit, resolvePrevisShotScene } from "@/lib/canvas/previs/previs-shot-state";
 import {
     interpolatePrevisTransform,
     touchPrevisScene,
@@ -133,7 +134,7 @@ export function CanvasPrevisWorkbench({
     }, [canvasId]);
     const viewportRef = useRef<PrevisViewportHandle>(null);
     const modelInputRef = useRef<HTMLInputElement>(null);
-    const [draft, setDraft] = useState<PrevisScene | null>(null);
+    const [storedDraft, setDraft] = useState<PrevisScene | null>(null);
     const [history, setHistory] = useState<PrevisScene[]>([]);
     const [future, setFuture] = useState<PrevisScene[]>([]);
     const [saving, setSaving] = useState(false);
@@ -237,6 +238,7 @@ export function CanvasPrevisWorkbench({
     const modelAssets = useMemo(() => assets.filter((asset): asset is ModelAsset => asset.kind === "model"), [assets]);
 
     const capabilities = previsModeCapabilities(mode);
+    const draft = useMemo(() => (storedDraft ? resolvePrevisShotScene(storedDraft, playhead) : null), [storedDraft, playhead]);
     const renderModeOptions = PREVIS_RENDER_MODE_LABELS.filter((option) => capabilities.renderModes.includes(option.value));
 
     const draftRef = useRef<PrevisScene | null>(null);
@@ -384,7 +386,7 @@ export function CanvasPrevisWorkbench({
             setHistory((items) => [...items.slice(-49), structuredClone(current)]);
             setFuture([]);
             // 所有提交（gizmo、检查器、快捷键、模板）都过一遍落地规则，演员不可能再沉到地下。
-            writeAndPublish(touchPrevisScene(groundPrevisScene(updater(current)).scene));
+            writeAndPublish(touchPrevisScene(applyPrevisShotEdit(current, (view) => groundPrevisScene(updater(view)).scene)));
         },
         [writeAndPublish],
     );
@@ -413,7 +415,7 @@ export function CanvasPrevisWorkbench({
             const current = draftRef.current;
             if (!current) return;
             stagedTransaction.begin();
-            writeDraft(touchPrevisScene(updater(current)));
+            writeDraft(touchPrevisScene(applyPrevisShotEdit(current, updater)));
         },
         [stagedTransaction, writeDraft],
     );
@@ -422,7 +424,7 @@ export function CanvasPrevisWorkbench({
     const replaceWithoutHistory = useCallback(
         (updater: (current: PrevisScene) => PrevisScene) => {
             const current = draftRef.current;
-            if (current) writeAndPublish(touchPrevisScene(updater(current)));
+            if (current) writeAndPublish(touchPrevisScene(applyPrevisShotEdit(current, updater)));
         },
         [writeAndPublish],
     );
@@ -551,7 +553,18 @@ export function CanvasPrevisWorkbench({
         })();
     };
 
-    const updateObject = (id: string, patch: Partial<PrevisObject>) => commit((current) => ({ ...current, objects: current.objects.map((item) => (item.id === id ? { ...item, ...patch } : item)) }));
+    const updateObject = (id: string, patch: Partial<PrevisObject>) =>
+        commit((current) => ({
+            ...current,
+            objects: current.objects.map((item) => {
+                if (item.id !== id) return item;
+                if (autoKey && patch.pose) {
+                    const record = resolvePrevisKeyframeRecord({ base: item.transform, keyframes: item.keyframes, rawTime: playhead, snappedTime: snappedPlayhead });
+                    return { ...item, ...patch, pose: item.pose, keyframes: record.keyframes.map((frame) => (frame.time === snappedPlayhead ? { ...frame, pose: patch.pose } : frame)) };
+                }
+                return { ...item, ...patch };
+            }),
+        }));
     const duplicateObject = (id: string) => {
         const source = draft?.objects.find((item) => item.id === id);
         if (!source) return;
@@ -767,7 +780,9 @@ export function CanvasPrevisWorkbench({
     const deleteKeyframe = useCallback(
         (target: PrevisKeyframeDeleteTarget) => {
             const current = draftRef.current;
-            if (!current || removePrevisSceneKeyframe(current, target) === current) return;
+            if (!current) return;
+            const view = resolvePrevisShotScene(current);
+            if (removePrevisSceneKeyframe(view, target) === view) return;
             commit((scene) => removePrevisSceneKeyframe(scene, target));
         },
         [commit],
@@ -776,7 +791,9 @@ export function CanvasPrevisWorkbench({
     const setKeyframeEasing = useCallback(
         (target: PrevisKeyframeDeleteTarget, easing: PrevisKeyframeEasing) => {
             const current = draftRef.current;
-            if (!current || setPrevisSceneKeyframeEasing(current, target, easing) === current) return;
+            if (!current) return;
+            const view = resolvePrevisShotScene(current);
+            if (setPrevisSceneKeyframeEasing(view, target, easing) === view) return;
             commit((scene) => setPrevisSceneKeyframeEasing(scene, target, easing));
         },
         [commit],
