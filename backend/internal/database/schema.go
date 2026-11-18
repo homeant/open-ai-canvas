@@ -169,6 +169,7 @@ func Models() []any {
 		&model.DramaShot{},
 		&model.DramaTake{},
 		&model.DramaSegment{},
+		&model.DramaSegmentPromptRevision{},
 		&model.DramaJob{},
 		&model.EcommerceRound{},
 	}

@@ -26,6 +26,63 @@ func TestCurrentSchemaVersionMatchesMigrationPlan(t *testing.T) {
 	}
 }
 
+func TestMigrateDramaSegmentPromptRevisionsBackfillsCurrentOverride(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:drama-prompt-revisions?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.DramaSegment{}); err != nil {
+		t.Fatal(err)
+	}
+	segment := model.DramaSegment{ID: "segment", ProjectID: "project", EpisodeID: "episode", SegmentIndex: 0, Revision: 7, VideoPrompt: "模型稿", VideoPromptOverride: "人工稿", UpdatedAt: time.Now()}
+	if err := db.Create(&segment).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateDramaSegmentPromptRevisions(db); err != nil {
+		t.Fatal(err)
+	}
+	var history []model.DramaSegmentPromptRevision
+	if err := db.Where("segment_id = ?", segment.ID).Find(&history).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || history[0].Revision != 7 || history[0].Prompt != "人工稿" {
+		t.Fatalf("backfilled history: %+v", history)
+	}
+	var stored model.DramaSegment
+	if err := db.First(&stored, "id = ?", segment.ID).Error; err != nil || stored.VideoPrompt != "模型稿" {
+		t.Fatalf("generated prompt changed: %+v, %v", stored, err)
+	}
+}
+
+func TestMigrateProjectExternalRequestHashPreservesExistingProject(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:project-external-request-hash?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO projects (id, name) VALUES (?, ?)", "existing", "原有作品").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateProjectExternalRequestHash(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateProjectExternalRequestHash(db); err != nil {
+		t.Fatalf("repeat migration: %v", err)
+	}
+	var stored struct {
+		Name                string
+		ExternalRequestHash string
+	}
+	if err := db.Table("projects").Select("name", "external_request_hash").Where("id = ?", "existing").Scan(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Name != "原有作品" || stored.ExternalRequestHash != "" {
+		t.Fatalf("existing project changed: %#v", stored)
+	}
+}
+
 type channelModelProtocolV58 struct {
 	ID       string `gorm:"primaryKey;size:36"`
 	Protocol string `gorm:"size:32;index"`

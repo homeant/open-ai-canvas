@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 102
+const CurrentSchemaVersion int64 = 104
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -351,6 +351,34 @@ var schemaMigrations = []migration{
 	{version: 102, name: "external_mcp_access", checksum: "sha256:external-mcp-access-v102", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.UserAPIKey{}, &model.MCPClient{}, &model.MCPAuthorizationCode{}, &model.Task{}, &model.Project{})
 	}},
+	{version: 103, name: "project_external_request_hash", checksum: "sha256:project-external-request-hash-v103", apply: migrateProjectExternalRequestHash},
+	{version: 104, name: "drama_segment_prompt_revisions", checksum: "sha256:drama-segment-prompt-revisions-v104", apply: migrateDramaSegmentPromptRevisions},
+}
+
+func migrateDramaSegmentPromptRevisions(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.DramaSegmentPromptRevision{}); err != nil {
+		return err
+	}
+	if !tx.Migrator().HasTable(&model.DramaSegment{}) {
+		return nil
+	}
+	var segments []model.DramaSegment
+	if err := tx.Where("video_prompt_override <> ''").Find(&segments).Error; err != nil {
+		return err
+	}
+	for _, segment := range segments {
+		if err := tx.Create(&model.DramaSegmentPromptRevision{ID: kernel.NewID(), ProjectID: segment.ProjectID, SegmentID: segment.ID, Revision: segment.Revision, Prompt: segment.VideoPromptOverride, CreatedAt: segment.UpdatedAt}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateProjectExternalRequestHash(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&model.Project{}) || tx.Migrator().HasColumn(&model.Project{}, "ExternalRequestHash") {
+		return nil
+	}
+	return tx.Migrator().AddColumn(&model.Project{}, "ExternalRequestHash")
 }
 
 func migrateAPILogGenerationContent(tx *gorm.DB) error {
