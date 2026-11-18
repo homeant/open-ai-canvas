@@ -76,6 +76,7 @@ services:
       CANVAS_CORS_ORIGINS: ${CANVAS_CORS_ORIGINS:-}
       CANVAS_PUBLIC_BASE_URL: ${CANVAS_PUBLIC_BASE_URL:-}
       CANVAS_MCP_PUBLIC_ORIGIN: ${CANVAS_MCP_PUBLIC_ORIGIN:-}
+      CANVAS_PREVIS_RENDERER_URL: http://yingce-previs:8090/render
       CANVAS_UPDATER_SOCKET: /run/open-ai-canvas-updater/updater.sock
       CANVAS_UPDATER_TOKEN: ${CANVAS_UPDATER_TOKEN:-}
       YINGCE_AGENT_URL: http://yingce-agent:8081
@@ -109,6 +110,29 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    restart: unless-stopped
+
+  yingce-previs:
+    image: ${CANVAS_BACKEND_IMAGE:?请先配置 CANVAS_BACKEND_IMAGE（必须包含镜像 digest）}
+    command: ["node", "/app/backend/agent-runtime/pi/previs-render-server.mjs"]
+    environment:
+      CANVAS_PREVIS_RENDER_URL: http://web:3000/previs-render.html
+      HOME: /tmp
+      XDG_CONFIG_HOME: /tmp
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - web
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
 volumes:

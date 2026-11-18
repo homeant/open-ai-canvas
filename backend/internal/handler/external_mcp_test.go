@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/jsonschema-go/jsonschema"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"yingce/backend/internal/auth"
@@ -82,6 +83,16 @@ func TestExternalMCPAuthorizationAndRevocation(t *testing.T) {
 	}
 }
 
+func TestExternalPrevisOperationMCPInputSchema(t *testing.T) {
+	schema, err := jsonschema.For[service.ExternalPrevisPatchOperation](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schema.Required) != 2 || schema.Required[0] != "type" || schema.Required[1] != "id" {
+		t.Fatalf("unexpected required fields: %#v", schema.Required)
+	}
+}
+
 func TestExternalMCPDiscoveryAndChallenge(t *testing.T) {
 	t.Setenv("CANVAS_MCP_PUBLIC_ORIGIN", "https://yingce.example.com")
 	svc := externalAccessTestService(t)
@@ -126,6 +137,11 @@ func TestExternalMCPDiscoveryAndChallenge(t *testing.T) {
 	router.ServeHTTP(response, request)
 	if response.Code != 200 || !strings.Contains(response.Body.String(), `"create_video"`) || !strings.Contains(response.Body.String(), `"create_drama"`) || !strings.Contains(response.Body.String(), `"edit_segment_prompt"`) || !strings.Contains(response.Body.String(), `"get_segment"`) || !strings.Contains(response.Body.String(), `"preview_segment_frame"`) || !strings.Contains(response.Body.String(), `"list_segment_versions"`) || !strings.Contains(response.Body.String(), `"set_segment_current_version"`) {
 		t.Fatalf("MCP tools/list: %d %s", response.Code, response.Body.String())
+	}
+	for _, name := range []string{"list_previs_capabilities", "list_previs_scenes", "create_previs_canvas", "get_previs_scene", "create_previs_scene", "list_previs_references", "upload_previs_model", "inspect_previs_model", "apply_previs_patch", "validate_previs_scene", "preview_previs_shot", "render_previs_frame", "render_previs_video", "upload_previs_render", "publish_previs_render", "get_previs_render"} {
+		if !strings.Contains(response.Body.String(), `"`+name+`"`) {
+			t.Fatalf("MCP tool %s missing from tools/list", name)
+		}
 	}
 }
 

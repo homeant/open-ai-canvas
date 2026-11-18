@@ -195,6 +195,82 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 		metadata, _ := json.Marshal(frame)
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(metadata)}, &mcp.ImageContent{MIMEType: "image/jpeg", Data: frame.JPEG}}}, nil, nil
 	})
+	externalMCPTool(server, "list_previs_capabilities", "读取预演台可用的模板、语义操作、坐标系与批量限制", func(_ context.Context, _ struct{}) (any, error) {
+		return svc.ExternalPrevisCapabilities(), nil
+	})
+	externalMCPTool(server, "list_previs_scenes", "列出指定作品和剧集下画布中的预演场景；先读取 canvasSnapshotHash 再创建", func(_ context.Context, input service.ExternalPrevisScope) (any, error) {
+		return svc.ListExternalPrevisScenes(userID, input)
+	})
+	externalMCPTool(server, "create_previs_canvas", "为作品和剧集创建预演画布；需要幂等键", func(ctx context.Context, input service.ExternalPrevisCanvasCreateRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "previs-write:"+userID, 30); err != nil {
+			return nil, err
+		}
+		return svc.CreateExternalPrevisCanvas(userID, input)
+	})
+	externalMCPTool(server, "list_previs_references", "列出剧集镜头及作品角色、场景和道具设定，返回可关联 ID", func(_ context.Context, input service.ExternalPrevisScope) (any, error) {
+		return svc.ListExternalPrevisReferences(userID, input)
+	})
+	externalMCPTool(server, "upload_previs_model", "上传最多 2 MiB 的 GLB 2.0 模型，返回资源 ID 和可选子节点索引；大文件可用 import_resource 导入 HTTPS URL", func(ctx context.Context, input service.ExternalPrevisModelUploadRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "resources-import:"+userID, 20); err != nil {
+			return nil, err
+		}
+		return svc.UploadExternalPrevisModel(userID, input)
+	})
+	externalMCPTool(server, "inspect_previs_model", "检查已有 GLB 资源并列出可独立放置的 mesh 节点索引", func(_ context.Context, input struct {
+		ResourceID string `json:"resourceId"`
+	}) (any, error) {
+		return svc.ExternalPrevisModelNodes(userID, input.ResourceID)
+	})
+	externalMCPTool(server, "upload_previs_render", "上传最多 2 MiB 的 PNG 单帧或 WebM 预览；更大的文件可由 import_resource 导入 HTTPS URL", func(ctx context.Context, input service.ExternalPrevisRenderUploadRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "resources-import:"+userID, 20); err != nil {
+			return nil, err
+		}
+		return svc.UploadExternalPrevisRender(userID, input)
+	})
+	externalMCPTool(server, "get_previs_scene", "读取指定预演场景及 snapshotHash；includeTransforms 可读回米制坐标和机位", func(_ context.Context, input service.ExternalPrevisReadRequest) (any, error) {
+		return svc.GetExternalPrevisScene(userID, input)
+	})
+	externalMCPTool(server, "create_previs_scene", "按画布快照创建独立预演场景和工作站节点；需要幂等键，dryRun 可先看差异", func(ctx context.Context, input service.ExternalPrevisCreateRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "previs-write:"+userID, 30); err != nil {
+			return nil, err
+		}
+		return svc.CreateExternalPrevisScene(userID, input)
+	})
+	externalMCPTool(server, "apply_previs_patch", "按场景 snapshotHash 批量应用最多 32 项语义补丁；需要幂等键，dryRun 可先看差异", func(ctx context.Context, input service.ExternalPrevisPatchRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "previs-write:"+userID, 30); err != nil {
+			return nil, err
+		}
+		return svc.ApplyExternalPrevisPatch(userID, input)
+	})
+	externalMCPTool(server, "preview_previs_shot", "只读检查白模预演参数；实际生成请调用 render_previs_frame 或 render_previs_video", func(_ context.Context, input service.ExternalPrevisPreviewRequest) (any, error) {
+		return svc.ExternalPrevisPreviewPlan(userID, input)
+	})
+	externalMCPTool(server, "render_previs_frame", "在服务端用真实预演视口渲染镜头白模 PNG，保存并绑定资源；需要场景快照和幂等键", func(ctx context.Context, input service.ExternalPrevisRenderRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "previs-render:"+userID, 4); err != nil {
+			return nil, err
+		}
+		input.Kind = "frame"
+		return svc.RenderExternalPrevis(ctx, userID, input)
+	})
+	externalMCPTool(server, "render_previs_video", "在服务端用真实预演视口录制最长 10 秒白模 WebM，保存并绑定资源；需要场景快照和幂等键", func(ctx context.Context, input service.ExternalPrevisRenderRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "previs-render:"+userID, 4); err != nil {
+			return nil, err
+		}
+		input.Kind = "video"
+		return svc.RenderExternalPrevis(ctx, userID, input)
+	})
+	externalMCPTool(server, "validate_previs_scene", "检查镜头关联、竖屏画幅和模型资源是否齐全", func(_ context.Context, input service.ExternalPrevisReadRequest) (any, error) {
+		return svc.ValidateExternalPrevisScene(userID, input)
+	})
+	externalMCPTool(server, "publish_previs_render", "把已上传的 PNG/WebM 预览资源关联到镜头；需要场景快照和幂等键", func(ctx context.Context, input service.ExternalPrevisRenderPublishRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "previs-write:"+userID, 30); err != nil {
+			return nil, err
+		}
+		return svc.PublishExternalPrevisRender(userID, input)
+	})
+	externalMCPTool(server, "get_previs_render", "读取镜头预览资源 ID 和媒体类型；使用 get_resource_access 获取临时地址", func(_ context.Context, input service.ExternalPrevisReadRequest) (any, error) {
+		return svc.GetExternalPrevisRender(userID, input)
+	})
 	externalMCPTool(server, "approve_episode", "批准剧集继续制作；仅在用户明确要求时调用", func(_ context.Context, input struct {
 		DramaID   string `json:"dramaId"`
 		EpisodeID string `json:"episodeId"`

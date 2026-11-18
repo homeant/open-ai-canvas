@@ -68,7 +68,7 @@ RUN npm ci --omit=dev --ignore-scripts
 FROM node:22.19-alpine
 
 # ffmpeg/ffprobe：短剧抽取剧情段视频最后一帧、时间线合成成片与视频播放转码。
-RUN apk add --no-cache ca-certificates tzdata wget ffmpeg \
+RUN apk add --no-cache ca-certificates tzdata wget ffmpeg chromium \
     && addgroup -S app \
     && adduser -S app -G app
 
@@ -85,6 +85,8 @@ COPY --from=payment-package-smoke /app/plugin-packages /app/plugin-packages
 COPY --from=pi-runtime-deps /app/backend/agent-runtime/pi/node_modules /app/backend/agent-runtime/pi/node_modules
 COPY backend/agent-runtime/pi/package.json backend/agent-runtime/pi/package-lock.json /app/backend/agent-runtime/pi/
 COPY backend/agent-runtime/pi/agent-runtime.mjs /app/backend/agent-runtime/pi/agent-runtime.mjs
+COPY backend/agent-runtime/pi/previs-render.mjs /app/backend/agent-runtime/pi/previs-render.mjs
+COPY backend/agent-runtime/pi/previs-render-server.mjs /app/backend/agent-runtime/pi/previs-render-server.mjs
 
 USER app
 EXPOSE 8080
