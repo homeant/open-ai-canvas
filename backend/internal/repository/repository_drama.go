@@ -251,6 +251,9 @@ func (r *Repository) DeleteDramaEpisode(projectID, episodeID string, releaseChap
 			}
 		}
 		segments := tx.Model(&model.DramaSegment{}).Select("id").Where("episode_id = ?", episode.ID)
+		if err := tx.Where("project_id = ? AND segment_id IN (?)", projectID, segments).Delete(&model.DramaSegmentPromptRevision{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("project_id = ? AND ((kind = ? AND owner_id IN (?)) OR (kind = ? AND owner_id = ?))", projectID, "video", segments, "final", episode.ID).Delete(&model.DramaTake{}).Error; err != nil {
 			return err
 		}
@@ -706,7 +709,7 @@ func (r *Repository) CancelQueuedDramaJobs(projectID string, filter func(*gorm.D
 
 func (r *Repository) DeleteDramaProductionData(projectID string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		for _, entity := range []any{&model.DramaJob{}, &model.DramaTake{}, &model.DramaSegment{}, &model.DramaShot{}, &model.DramaEpisode{}, &model.DramaCast{}, &model.DramaProduction{}} {
+		for _, entity := range []any{&model.DramaJob{}, &model.DramaTake{}, &model.DramaSegmentPromptRevision{}, &model.DramaSegment{}, &model.DramaShot{}, &model.DramaEpisode{}, &model.DramaCast{}, &model.DramaProduction{}} {
 			if err := tx.Where("project_id = ?", projectID).Delete(entity).Error; err != nil {
 				return err
 			}
@@ -891,6 +894,9 @@ func (r *Repository) ApplyDramaScript(episodeID string, revision *int64, fields 
 			return err
 		}
 		// 剧情段随镜头重新切分，旧段的提示词不再对得上，重建为待撰写。
+		if err := tx.Where("segment_id IN (?)", tx.Model(&model.DramaSegment{}).Select("id").Where("episode_id = ?", episodeID)).Delete(&model.DramaSegmentPromptRevision{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("episode_id = ?", episodeID).Delete(&model.DramaSegment{}).Error; err != nil {
 			return err
 		}
@@ -990,15 +996,46 @@ func (r *Repository) DramaSegments(episodeID string) ([]model.DramaSegment, erro
 	return segments, err
 }
 
-// SaveDramaSegmentOverride 写入或清除段级提示词改写；行不存在时创建（旧剧本没有段记录）。
+// SaveDramaSegmentOverride 写入或清除段级提示词改写。
 func (r *Repository) SaveDramaSegmentOverride(segment model.DramaSegment) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	_, err := r.SaveDramaSegmentOverrideIfRevision(segment, nil)
+	return err
+}
+
+// SaveDramaSegmentOverrideIfRevision 原子保存提示词改写并记录人工版本。
+func (r *Repository) SaveDramaSegmentOverrideIfRevision(segment model.DramaSegment, expectedRevision *int64) (int64, error) {
+	var revision int64
+	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var current model.DramaSegment
-		if err := tx.Where("episode_id = ? AND segment_index = ?", segment.EpisodeID, segment.SegmentIndex).First(&current).Error; err != nil {
+		if err := tx.Where("project_id = ? AND episode_id = ? AND segment_index = ?", segment.ProjectID, segment.EpisodeID, segment.SegmentIndex).First(&current).Error; err != nil {
 			return err
 		}
-		return invalidateDramaSegment(tx, current, map[string]any{"video_prompt_override": segment.VideoPromptOverride}, true)
+		if expectedRevision != nil && current.Revision != *expectedRevision {
+			return ErrCreationConflict
+		}
+		if current.VideoPromptOverride == segment.VideoPromptOverride {
+			revision = current.Revision
+			return nil
+		}
+		if err := invalidateDramaSegment(tx, current, map[string]any{"video_prompt_override": segment.VideoPromptOverride}, true); err != nil {
+			return err
+		}
+		revision = current.Revision + 1
+		if segment.VideoPromptOverride != "" {
+			return tx.Create(&model.DramaSegmentPromptRevision{ID: kernel.NewID(), ProjectID: current.ProjectID, SegmentID: current.ID, Revision: revision, Prompt: segment.VideoPromptOverride, CreatedAt: time.Now()}).Error
+		}
+		return nil
 	})
+	return revision, err
+}
+
+func (r *Repository) DramaSegmentPromptRevisions(projectID, segmentID string, limit int) ([]model.DramaSegmentPromptRevision, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	var rows []model.DramaSegmentPromptRevision
+	err := r.db.Where("project_id = ? AND segment_id = ?", projectID, segmentID).Order("revision desc").Limit(limit).Find(&rows).Error
+	return rows, err
 }
 
 // SaveDramaSegmentReferenceFields 一次保存图片与音色选择，并使在途作业按修订号失效。
@@ -1263,8 +1300,12 @@ func invalidateDramaSegment(tx *gorm.DB, segment model.DramaSegment, fields map[
 	}
 	fields["revision"] = gorm.Expr("revision + 1")
 	fields["updated_at"] = time.Now()
-	if err := tx.Model(&model.DramaSegment{}).Where("id = ?", segment.ID).Updates(fields).Error; err != nil {
-		return err
+	result := tx.Model(&model.DramaSegment{}).Where("id = ? AND revision = ?", segment.ID, segment.Revision).Updates(fields)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrCreationConflict
 	}
 	cascade, err := markLaterSegmentsStale(tx, segment.EpisodeID, segment.SegmentIndex)
 	if err != nil {
@@ -1302,11 +1343,18 @@ func (r *Repository) UpdateDramaShotScript(shot model.DramaShot, fields map[stri
 }
 
 func (r *Repository) RequestDramaSegmentVideos(projectID, episodeID string, indexes []int, modelJSON *string) error {
+	return r.RequestDramaSegmentVideosIfRevision(projectID, episodeID, indexes, modelJSON, nil)
+}
+
+func (r *Repository) RequestDramaSegmentVideosIfRevision(projectID, episodeID string, indexes []int, modelJSON *string, expectedPromptRevision *int64) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		for _, index := range indexes {
 			var segment model.DramaSegment
 			if err := tx.Where("project_id = ? AND episode_id = ? AND segment_index = ?", projectID, episodeID, index).First(&segment).Error; err != nil {
 				return err
+			}
+			if expectedPromptRevision != nil && segment.Revision != *expectedPromptRevision {
+				return ErrCreationConflict
 			}
 			if segment.VideoStatus == "running" {
 				return errors.New("剧情段视频正在生成")
