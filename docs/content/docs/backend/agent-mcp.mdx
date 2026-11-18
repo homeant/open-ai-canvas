@@ -78,3 +78,28 @@ Agent 可以通过远端 MCP 服务查询或操作外部系统。用户在「Age
 回调会校验 token；配置 EncryptKey 时校验 Lark 签名。首版明确只接受明文文本事件，包含 `encrypt` 字段的加密事件会拒绝并提示关闭事件加密。消息写入现有反馈收件箱，事件按租户和事件 ID 幂等；日报使用跨实例租约和持久化状态，网络结果不确定时不自动重试。MCP 参数配置和飞书收件配置相互独立，MCP 仍适合调用外部文档、查询或操作工具。
 
 浏览器完整流程及真实 MCP 服务仍需按[待测试清单](/docs/progress/pending-test)验收。接口和数据结构分别见 [HTTP API 合同](/docs/backend/http-api)与[后端数据库](/docs/backend/backend-database)。
+
+## 预演台工具
+
+对外 `/api/mcp` 提供预演画布、场景、模型、镜头、校验与预览资源工具。作品和剧集由 `dramaId`、`episodeId` 指定；同一作品有多张画布时，先从 `list_previs_scenes` 返回的 `canvases` 选择 `canvasId`，也可用 `create_previs_canvas` 建立新画布。服务端逐次检查当前用户、作品、剧集与画布归属。新场景保存 `episodeId`，其他剧集不能读取或修改它；旧场景若无剧集标记，首次由 MCP 写入时绑定到当前剧集。
+
+| 工具 | 用途 |
+| --- | --- |
+| `list_previs_capabilities` | 坐标系、模板、操作 schema 与容量限制 |
+| `list_previs_scenes`、`create_previs_canvas`、`create_previs_scene`、`get_previs_scene` | 画布与场景目录、创建和回读 |
+| `list_previs_references` | 读取作品角色、场景、道具设定和本集镜头 ID |
+| `upload_previs_model`、`inspect_previs_model` | 上传 GLB 并取得可单独放置的 mesh 节点索引 |
+| `apply_previs_patch` | 写对象、模型、镜头、灯光、动画、镜头级对象状态及关联 |
+| `validate_previs_scene` | 检查场景结构、竖屏画幅、镜头对象状态和模型引用 |
+| `preview_previs_shot`、`render_previs_frame`、`render_previs_video`、`get_previs_render` | 核对参数、服务端生成白模单帧或视频、回读资源 |
+| `upload_previs_render`、`publish_previs_render` | 将外部渲染的 PNG/WebM 作为补充入口上传并绑定 |
+
+创建前读取画布的 `canvasSnapshotHash`；补丁前读取场景的 `snapshotHash`。这两个快照不可互换。`create_previs_scene` 使用 `idempotencyKey` 派生稳定 `sceneId` 并创建可打开预演台的工作站节点；`apply_previs_patch` 每次最多 32 项，只接受内置的对象、镜头、相机、灯光和动画语义操作，具体字段由 `list_previs_capabilities.operationSchema` 返回。两种写工具均支持 `dryRun: true`，返回拟修改摘要而不保存。提交后返回新的场景与画布快照、画布版本及节点 ID。同一幂等键的相同请求可重放，不同内容会返回冲突；回执只用于短期恢复，过期后的重复补丁仍受旧快照校验。
+
+场景坐标单位为米，Y 轴向上；`get_previs_scene` 传 `includeTransforms: true` 可读取物体位置、旋转、缩放及机位目标点，不返回模型 URL 或存储键。`upload_previs_model` 接收 `fileName`、GLB 2.0 的 `dataBase64` 和 `idempotencyKey`，单次上限为 2 MiB；更大的 GLB 可先通过 `import_resource` 从 HTTPS 地址导入，再调用 `inspect_previs_model`。返回的 `nodes[].index` 可在 `object_add` 中配合 `kind: "model"`、`resourceId` 和 `gltfNodeIndex` 使用；省略节点索引时放置整份 GLB。预演视口对这些 MCP 模型保留 GLB 的米制尺寸和层级变换。
+
+`list_previs_references` 返回剧集镜头和作品设定 ID。`shot_add` / `shot_update` 可设置 `dramaShotId` 和 `aspectRatio: "9:16"`；`object_add` / `object_update` 可设置 `dramaCastId`。`shot_object_set` 以镜头 ID 为 `id`、对象 ID 为 `objectId`，设置该镜头中的 `visible` 或位置、旋转、缩放；`shot_object_clear` 删除该镜头的覆盖状态。关联的镜头与设定必须属于当前作品及剧集。
+
+`preview_previs_shot` 只核对参数，返回 `ready_to_render`，不会生成资源或计费。调用 `render_previs_frame` 或 `render_previs_video` 时提供 `dramaId`、`episodeId`、`canvasId`、`sceneId`、`shotId`、`snapshotHash` 和 `idempotencyKey`。服务端在独立的无头 Chromium 中加载同一套预演视口，等待模型就绪，按镜头画幅输出白模 PNG 或 WebM，再保存资源并绑定到镜头；视频最长 10 秒，帧率最高 30，`longEdge` 为 320–1280。返回新场景快照及资源 ID，`get_previs_render` 可回读，随后用 `get_resource_access` 获取临时地址。这些白模渲染不调用付费模型。
+
+已有外部渲染结果也可通过 `upload_previs_render` 上传 PNG/WebM（单次上限 2 MiB），较大文件可由 `import_resource` 导入，再用 `publish_previs_render` 按场景快照和幂等键绑定。官方部署编排为服务端渲染提供独立的 `yingce-previs` 容器，使用与 backend 相同的 Release 镜像但不挂载后端数据卷或密钥，后端通过 `CANVAS_PREVIS_RENDERER_URL` 调用它；渲染页由 web 镜像的 `/previs-render.html` 提供。源码本地联调可设置 `CANVAS_PREVIS_RENDER_URL` 指向当前前端地址，并用 `CANVAS_PREVIS_CHROME_PATH` 指定本机 Chrome。自定义部署需同时提供该渲染页、Chromium 和可用的 `CANVAS_PREVIS_RENDERER_URL`，否则渲染工具会明确报错。

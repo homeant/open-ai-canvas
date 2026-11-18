@@ -126,6 +126,7 @@ type PrevisViewportProps = {
     onObjectTransform: (id: string, from: PrevisTransform, to: PrevisTransform) => void;
     onBoneTransform: (id: string, bone: string, rotation: PrevisQuat) => void;
     onActorRigReady: (id: string, rig: PrevisRig, animations: AnimationClip[]) => void;
+    onModelLoadStateChange?: (id: string, signal: PrevisLoadSignal) => void;
     /** 选中的摄影机 id；导演视角中显示可拖动的摄影机 gizmo。 */
     selectedCameraId?: string | null;
     onSelectCamera?: (id: string) => void;
@@ -210,9 +211,13 @@ export const PrevisViewport = forwardRef<PrevisViewportHandle, PrevisViewportPro
         setFailedLoads({});
         setRetryKey((value) => value + 1);
     }, [releaseCapture]);
-    const onLoadStateChange = useCallback((id: string, signal: PrevisLoadSignal, retryLoad: () => void) => {
-        setFailedLoads((current) => upsertPrevisFailedLoad(current, id, signal, retryLoad));
-    }, []);
+    const onLoadStateChange = useCallback(
+        (id: string, signal: PrevisLoadSignal, retryLoad: () => void) => {
+            setFailedLoads((current) => upsertPrevisFailedLoad(current, id, signal, retryLoad));
+            props.onModelLoadStateChange?.(id, signal);
+        },
+        [props.onModelLoadStateChange],
+    );
     // 稳定引用：否则新的监听 effect 会在每次父级 render 时摘除重装。
     const onContextLost = useCallback(() => {
         // 上下文丢失后相机与射线结果都不可信，旧地面点必须作废，恢复后需重新移动 pointer。
@@ -513,6 +518,7 @@ function PrevisSceneContent({
     const containerAspect = size.width / Math.max(size.height, 1);
     const rawCamFraming = resolvePrevisViewFraming({ scene, mode: viewMode, playhead, cameraId: selectedCameraId, viewportAspect: containerAspect });
     const shotAspect = previsAspectValue(resolvePrevisActiveShot(scene)?.aspectRatio, containerAspect);
+    const shotObjectStates = new Map(resolvePrevisActiveShot(scene)?.objectStates?.map((state) => [state.objectId, state] as const) ?? []);
     const camFraming = rawCamFraming ? { ...rawCamFraming, fov: resolvePrevisContainerFov(rawCamFraming.fov, shotAspect, containerAspect) } : null;
     const orthoFraming = resolvePrevisOrthographicFraming({ scene, mode: viewMode });
     const effectiveViewport = resolvePrevisEffectiveViewport({ mode: viewMode, framing: camFraming });
@@ -849,6 +855,10 @@ function PrevisSceneContent({
                 />
             ))}
             {scene.objects
+                .map((item) => {
+                    const state = shotObjectStates.get(item.id);
+                    return state ? { ...item, visible: state.visible ?? item.visible, transform: state.transform ?? item.transform, keyframes: state.transform ? [] : item.keyframes, motionPath: state.transform ? undefined : item.motionPath } : item;
+                })
                 .filter((item) => item.visible)
                 .map((object) => (
                     <PrevisObjectView
@@ -1667,7 +1677,7 @@ function PrevisModel({
     const modelUrl = object.url;
     // 展示身份 = generation + 解析输入。render 阶段用它屏蔽旧资源，
     // 因此 prop/retry 变化的第一次 render 就已卸下上一代 model，随后 cleanup 才 dispose。
-    const identity = previsLoadIdentity({ generation: loadGeneration, url: modelUrl, storageKey: object.storageKey, kind: object.kind });
+    const identity = `${previsLoadIdentity({ generation: loadGeneration, url: modelUrl, storageKey: object.storageKey, kind: object.kind })}:${object.gltfNodeIndex ?? "all"}:${object.preserveGLBScale ? "meters" : "normalized"}`;
     type LoadedModel = { model: Object3D; rig: PrevisRig; animations: AnimationClip[]; restRotations: Partial<Record<PrevisHumanoidBone, PrevisQuat>> };
     const [loaded, setLoaded] = useState<{ identity: string; value: LoadedModel } | null>(null);
     const display = resolvePrevisDisplay(loaded, identity);
@@ -1772,8 +1782,27 @@ function PrevisModel({
                             // clone 与 source 共享 geometry/material/texture。
                             // 采纳后 source 的 Object3D 层级可被 GC，共享 GPU 资源由 owned clone 持有，
                             // 最终只在 clone 的 cleanup 里释放一次；这里绝不 dispose source。
-                            clone = SkeletonUtils.clone(gltf.scene);
-                            normalizeModel(clone, object.castShadow, object.receiveShadow);
+                            let source: Object3D = gltf.scene;
+                            if (object.gltfNodeIndex !== undefined) {
+                                let selectedNode: Object3D | null = null;
+                                gltf.scene.traverse((candidate) => {
+                                    if (gltf.parser.associations.get(candidate)?.nodes === object.gltfNodeIndex) selectedNode = candidate;
+                                });
+                                if (!selectedNode) throw new Error("GLB node not found");
+                                gltf.scene.updateMatrixWorld(true);
+                                source = selectedNode;
+                            }
+                            clone = SkeletonUtils.clone(source);
+                            if (source !== gltf.scene) source.matrixWorld.decompose(clone.position, clone.quaternion, clone.scale);
+                            if (object.preserveGLBScale) {
+                                clone.traverse((child) => {
+                                    const mesh = child as Mesh;
+                                    if (mesh.isMesh) {
+                                        mesh.castShadow = object.castShadow;
+                                        mesh.receiveShadow = object.receiveShadow;
+                                    }
+                                });
+                            } else normalizeModel(clone, object.castShadow, object.receiveShadow);
                             const nextRig = inferPrevisRig(
                                 clone,
                                 gltf.animations.map((clip) => clip.name),
@@ -1815,7 +1844,7 @@ function PrevisModel({
             mixerRef.current = null;
             disposePrevisModelResources({ model: owned.model, mixer: owned.mixer });
         };
-    }, [identity, modelUrl, object.storageKey]);
+    }, [identity, modelUrl, object.storageKey, object.gltfNodeIndex, object.preserveGLBScale]);
 
     useEffect(() => {
         if (!model) return;

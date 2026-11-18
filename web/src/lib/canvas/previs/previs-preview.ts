@@ -26,8 +26,9 @@ export function resolvePrevisActiveShot(scene: PrevisScene | null, shotId: strin
  * 预览来源优先级（严格自上而下）：
  * 1. node.metadata.previsPreviewNodeId 指向的画布节点正文
  * 2. 当前 PrevisShot.previewNodeId 指向的画布节点正文（补 metadata 丢失）
- * 3. scene 为 null：场景尚在准备（loading）
- * 4. 其余：诚实空态
+ * 3. MCP 发布的单帧资源
+ * 4. scene 为 null：场景尚在准备（loading）
+ * 5. 其余：诚实空态
  * 不改动任何 scene/node 状态，只做读取判定。
  */
 export function resolvePrevisPreviewSource(input: { scene: PrevisScene | null; shot: PrevisShot | undefined; previewNodeId: string | undefined; readNodeContent: PrevisNodeContentReader }): PrevisPreviewSource {
@@ -35,6 +36,7 @@ export function resolvePrevisPreviewSource(input: { scene: PrevisScene | null; s
     if (fromMetadata) return { kind: "image", ...fromMetadata };
     const fromShot = usableContent(input.readNodeContent, input.shot?.previewNodeId);
     if (fromShot) return { kind: "image", ...fromShot };
+    if (input.shot?.renderKind === "frame" && input.shot.renderResourceId) return { kind: "image", url: "", storageKey: `resource:${input.shot.renderResourceId}` };
     if (!input.scene) return { kind: "loading" };
     return { kind: "empty" };
 }
@@ -64,14 +66,7 @@ export type PrevisPreviewRequest = {
 export function previsPreviewRequestKey(request: PrevisPreviewRequest) {
     const requestId = request.previewRequestId?.trim();
     if (requestId) return `id:${requestId}`;
-    return [
-        "fallback",
-        request.canvasId?.trim() || "",
-        request.sceneId?.trim() || "",
-        request.shotId?.trim() || "",
-        Number.isFinite(request.duration) ? String(request.duration) : "",
-        Number.isFinite(request.fps) ? String(request.fps) : "",
-    ].join(":");
+    return ["fallback", request.canvasId?.trim() || "", request.sceneId?.trim() || "", request.shotId?.trim() || "", Number.isFinite(request.duration) ? String(request.duration) : "", Number.isFinite(request.fps) ? String(request.fps) : ""].join(":");
 }
 
 /** Agent 事件只有命中当前画布、场景和活动镜头时才允许触发浏览器录制。 */

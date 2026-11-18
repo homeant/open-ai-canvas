@@ -39,6 +39,13 @@ describe("预览来源优先级", () => {
         expect(source).toEqual({ kind: "image", url: "data:image/png;base64,SHOT" });
     });
 
+    test("MCP 单帧资源在节点预览缺失时可回读", () => {
+        const current = scene();
+        const shot = { ...current.shots[0], renderResourceId: "frame-1", renderKind: "frame" as const };
+        expect(resolvePrevisPreviewSource({ scene: current, shot, previewNodeId: undefined, readNodeContent: reader({}) })).toEqual({ kind: "image", url: "", storageKey: "resource:frame-1" });
+        expect(resolvePrevisPreviewSource({ scene: current, shot, previewNodeId: "older", readNodeContent: reader({ older: "data:image/png;base64,OLDER" }) })).toEqual({ kind: "image", url: "data:image/png;base64,OLDER" });
+    });
+
     test("metadata 指向的节点已删除时回落到 shot", () => {
         const current = scene();
         const shot = { ...current.shots[0], previewNodeId: "from-shot" };

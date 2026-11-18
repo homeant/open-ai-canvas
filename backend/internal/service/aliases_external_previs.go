@@ -1,0 +1,15 @@
+package service
+
+import "yingce/backend/internal/app"
+
+type ExternalPrevisScope = app.ExternalPrevisScope
+type ExternalPrevisReadRequest = app.ExternalPrevisReadRequest
+type ExternalPrevisCreateRequest = app.ExternalPrevisCreateRequest
+type ExternalPrevisPatchOperation = app.ExternalPrevisPatchOperation
+type ExternalPrevisPatchRequest = app.ExternalPrevisPatchRequest
+type ExternalPrevisPreviewRequest = app.ExternalPrevisPreviewRequest
+type ExternalPrevisModelUploadRequest = app.ExternalPrevisModelUploadRequest
+type ExternalPrevisCanvasCreateRequest = app.ExternalPrevisCanvasCreateRequest
+type ExternalPrevisRenderUploadRequest = app.ExternalPrevisRenderUploadRequest
+type ExternalPrevisRenderPublishRequest = app.ExternalPrevisRenderPublishRequest
+type ExternalPrevisRenderRequest = app.ExternalPrevisRenderRequest

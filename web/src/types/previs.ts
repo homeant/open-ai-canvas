@@ -173,6 +173,9 @@ export type PrevisObject = {
     storageKey?: string;
     url?: string;
     mimeType?: string;
+    gltfNodeIndex?: number;
+    preserveGLBScale?: boolean;
+    dramaCastId?: string;
     keyframes: PrevisKeyframe[];
     motionPath?: PrevisMotionPath;
     /** kind=prop 时的程序化道具目录 ID；见 previs-prop-catalog.ts。 */
@@ -217,6 +220,10 @@ export type PrevisShot = {
     duration: number;
     fps: 24 | 25 | 30;
     aspectRatio?: PrevisAspectRatio;
+    dramaShotId?: string;
+    objectStates?: Array<{ objectId: string; visible?: boolean; transform?: PrevisTransform }>;
+    renderResourceId?: string;
+    renderKind?: "frame" | "video";
     shotSize: PrevisShotSize;
     cameraMove: PrevisCameraMove;
     prompt: string;
