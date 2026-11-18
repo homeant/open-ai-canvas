@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -24,6 +25,9 @@ func externalMCPTool[In any](server *mcp.Server, name, description string, fn fu
 			body := map[string]any{"code": appErr.Code, "reason": appErr.Reason, "msg": appErr.Message, "details": appErr.Details}
 			data, _ := json.Marshal(body)
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}, nil, nil
+		}
+		if result, ok := value.(*mcp.CallToolResult); ok && err == nil {
+			return result, nil, nil
 		}
 		return nil, value, err
 	})
@@ -197,7 +201,7 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	externalMCPTool(server, "list_previs_capabilities", "读取预演台可用的模板、语义操作、坐标系与批量限制", func(_ context.Context, _ struct{}) (any, error) {
 		return svc.ExternalPrevisCapabilities(), nil
 	})
-	externalMCPTool(server, "list_previs_scenes", "列出指定作品和剧集下画布中的预演场景；先读取 canvasSnapshotHash 再创建", func(_ context.Context, input service.ExternalPrevisScope) (any, error) {
+	externalMCPTool(server, "list_previs_scenes", "按 canvasId 或作品和剧集列出预演场景、节点与修订快照", func(_ context.Context, input service.ExternalPrevisScope) (any, error) {
 		return svc.ListExternalPrevisScenes(userID, input)
 	})
 	externalMCPTool(server, "create_previs_canvas", "为作品和剧集创建预演画布；需要幂等键", func(ctx context.Context, input service.ExternalPrevisCanvasCreateRequest) (any, error) {
@@ -226,7 +230,7 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 		}
 		return svc.UploadExternalPrevisRender(userID, input)
 	})
-	externalMCPTool(server, "get_previs_scene", "读取指定预演场景及 snapshotHash；includeTransforms 可读回米制坐标和机位", func(_ context.Context, input service.ExternalPrevisReadRequest) (any, error) {
+	externalMCPTool(server, "get_previs_scene", "按 canvasId 与 sceneId/nodeId 读取场景及 revision/snapshotHash；shotId 返回独立关键帧和首末状态，includeTransforms 返回米制坐标", func(_ context.Context, input service.ExternalPrevisReadRequest) (any, error) {
 		return svc.GetExternalPrevisScene(userID, input)
 	})
 	externalMCPTool(server, "create_previs_scene", "按画布快照创建独立预演场景和工作站节点；需要幂等键，dryRun 可先看差异", func(ctx context.Context, input service.ExternalPrevisCreateRequest) (any, error) {
@@ -249,7 +253,27 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 			return nil, err
 		}
 		input.Kind = "frame"
-		return svc.RenderExternalPrevis(ctx, userID, input)
+		result, err := svc.RenderExternalPrevis(ctx, userID, input)
+		if err != nil {
+			return nil, err
+		}
+		resource, body, err := svc.OpenResource(userID, result["resourceId"].(string))
+		if err != nil {
+			return nil, err
+		}
+		defer body.Close()
+		data, err := io.ReadAll(io.LimitReader(body, (8<<20)+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > 8<<20 {
+			return result, nil
+		}
+		metadata, err := json.Marshal(result)
+		if err != nil {
+			return nil, err
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(metadata)}, &mcp.ImageContent{MIMEType: resource.MimeType, Data: data}}}, nil
 	})
 	externalMCPTool(server, "render_previs_video", "在服务端用真实预演视口录制最长 10 秒白模 WebM，保存并绑定资源；需要场景快照和幂等键", func(ctx context.Context, input service.ExternalPrevisRenderRequest) (any, error) {
 		if err := externalMCPAllow(ctx, svc, "previs-render:"+userID, 4); err != nil {

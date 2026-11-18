@@ -9,7 +9,7 @@ import { moduleGroupSource } from "./helpers/module-group-source";
  */
 const dock = readFileSync(resolve(import.meta.dir, "../src/components/canvas/previs/previs-viewport-dock.tsx"), "utf8");
 const workbench = moduleGroupSource("components/canvas/previs/canvas-previs-workbench.tsx");
-const sequencer = readFileSync(resolve(import.meta.dir, "../src/components/canvas/previs/previs-sequencer.tsx"), "utf8");
+const sequencer = readFileSync(resolve(import.meta.dir, "../src/components/canvas/previs/previs-sequencer.tsx"), "utf8").replace(/\s+/g, " ");
 const styles = readFileSync(resolve(import.meta.dir, "../src/styles/globals.css"), "utf8");
 
 function slice(source: string, from: string, to: string) {
@@ -31,13 +31,15 @@ describe("workbench 接入时间轴关键帧删除", () => {
         const element = slice(workbench, "<PrevisSequencer", "/>");
         expect(element).toContain("onSetKeyframeEasing={setKeyframeEasing}");
         const handler = slice(workbench, "const setKeyframeEasing = useCallback", "* 快捷键执行器");
-        expect(handler).toContain("setPrevisSceneKeyframeEasing(current, target, easing) === current");
+        expect(handler).toContain("resolvePrevisShotScene(current)");
+        expect(handler).toContain("setPrevisSceneKeyframeEasing(view, target, easing) === view");
         expect(handler).toContain("commit((scene) => setPrevisSceneKeyframeEasing(scene, target, easing));");
     });
 
     test("deleteKeyframe 未命中时不进 commit：不记历史、不产生修订", () => {
         const handler = slice(workbench, "const deleteKeyframe = useCallback", "* 快捷键执行器");
-        expect(handler).toContain("removePrevisSceneKeyframe(current, target) === current) return;");
+        expect(handler).toContain("resolvePrevisShotScene(current)");
+        expect(handler).toContain("removePrevisSceneKeyframe(view, target) === view) return;");
         expect(handler).toContain("commit((scene) => removePrevisSceneKeyframe(scene, target));");
     });
 
@@ -46,7 +48,7 @@ describe("workbench 接入时间轴关键帧删除", () => {
         const commit = slice(workbench, "const commit = useCallback", "/** 暂存型手势");
         expect(commit).toContain("setHistory((items) => [...items.slice(-49), structuredClone(current)]);");
         // 提交前统一过落地规则（previs-grounding），仍然是同一条 writeAndPublish 通道。
-        expect(commit).toContain("writeAndPublish(touchPrevisScene(groundPrevisScene(updater(current)).scene));");
+        expect(commit).toContain("writeAndPublish(touchPrevisScene(applyPrevisShotEdit(current, (view) => groundPrevisScene(updater(view)).scene)));");
     });
 });
 
@@ -165,7 +167,7 @@ describe("三类轨道都有删除入口，概览轨保持只读", () => {
         expect(cameraCut).toContain("<TrackKeys duration={duration} keys={cameraKeys} />");
         expect(cameraCut).not.toContain("onDeleteKey");
 
-        const cameraRow = slice(sequencer, "{camera ? <SequencerRow label={camera.name}", "</SequencerRow> : null}");
+        const cameraRow = slice(sequencer, "label={camera.name}", "</SequencerRow>");
         expect(cameraRow).toContain("onDeleteKey={deleteTrackKey}");
     });
 
@@ -179,7 +181,7 @@ describe("三类轨道都有删除入口，概览轨保持只读", () => {
     });
 
     test("折叠状态下的对象汇总轨也可删除，否则收起后就删不掉", () => {
-        const summaryRow = slice(sequencer, "<SequencerRow label={object.name} icon={isExpanded", "</SequencerRow>");
+        const summaryRow = slice(sequencer, "label={object.name} icon={isExpanded", "</SequencerRow>");
         expect(summaryRow).toContain("keys={[...transformKeys, ...boneTrackKeys]}");
         expect(summaryRow).toContain("onDeleteKey={deleteTrackKey}");
     });
@@ -207,7 +209,7 @@ describe("三类轨道都有删除入口，概览轨保持只读", () => {
 
     test("切换摄影机或外部删帧后清除陈旧选择，顶部控件不能误改不可见轨道", () => {
         expect(sequencer).toContain("previsKeyframeTargetExists(selectedKey.target, camera, objects)");
-        expect(sequencer).toContain("setSelectedKey((current) => current?.target && !previsKeyframeTargetExists(current.target, camera, objects) ? null : current);");
+        expect(sequencer).toMatch(/setSelectedKey\(\(current\) => \(?current\?\.target && !previsKeyframeTargetExists\(current.target, camera, objects\) \? null : current\)?\);/);
         expect(sequencer).toContain("camera?.id === target.cameraId && camera.keyframes.some");
         expect(sequencer).toContain("object.boneTracks?.some");
     });

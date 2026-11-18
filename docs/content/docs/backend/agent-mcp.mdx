@@ -5,6 +5,24 @@ description: 个人和平台 MCP 的安装、参数配置、工具授权、市�
 
 # Agent MCP 连接与市场
 
+## 外部创作客户端的预演台工具
+
+影策对外的 `/api/mcp` 提供 `list_previs_scenes`、`get_previs_scene`、`apply_previs_patch`、`render_previs_frame`、`render_previs_video` 等预演工具。它们不提交正式视频生成。可直接按 `canvasId` 定位当前用户的画布；读取时可用 `nodeId` 解析场景，或指定 `sceneId`。如果同时提供作品和剧集上下文，仍须校验画布归属和剧集绑定。
+
+1. 先调用 `list_previs_scenes({canvasId})`，取得场景、节点和镜头 ID。
+2. 调用 `get_previs_scene({canvasId, sceneId, shotId, includeTransforms:true})`。返回 `revision`、`snapshotHash`、米制坐标、机位、镜头独立轨道及 `scene.shotFrames` 的 `firstFrame` / `lastFrame`。首末状态是变换与姿态数据，不冒充骨骼蒙皮或碰撞检测结果。
+3. `apply_previs_patch` 必须带场景 `snapshotHash` 与 `idempotencyKey`；可同时传 `expectedRevision` 做画布修订校验。整批验证与写入在同一事务内完成，同键同请求返回原回执，同键不同请求拒绝，失效快照和修订拒绝。`dryRun:true` 只校验不落盘。
+4. 对象姿态、变换及动画补丁用 `id` 定位对象、`shotId` 明确目标镜头，写入该镜头的 `objectStates`，不修改角色场景基准或其他镜头。省略 `shotId` 表示场景全局修改，不能用于需要隔离的逐镜动作。UI 的对象姿态、变换和骨骼编辑也保存到当前镜头；自动关键帧开启时，姿态写入当前帧的 `pose`，在该帧起生效。
+5. `render_previs_frame({canvasId,sceneId,shotId,snapshotHash,idempotencyKey,time})` 使用真实预演视口渲染指定镜头的时间点，返回 PNG 图像内容和资源 ID；时间必须在镜头时长内。它会保存并关联镜头预览，返回更新后的快照；连续渲染需使用新快照。`render_previs_video` 仅录制最长十秒白模 WebM。
+
+例如独立编辑第二镜最后一帧：
+
+```json
+{"type":"object_keyframe_upsert","id":"actor-id","shotId":"second-shot-id","keyframeId":"sit-end","time":3.2,"rotation":[0,0,0],"pose":"sit"}
+```
+
+预演渲染依赖真实 Web 渲染入口与 Chromium。宿主机开发设置 `CANVAS_PREVIS_RENDER_URL=http://127.0.0.1:3000/previs-render.html`，由服务端启动浏览器；该设置不是允许任意客户端指定 URL。客户端工具清单来自实际运行的后端，切换工作目录或重启旧代码不会自动包含另一分支新增的工具。
+
 Agent 可以通过远端 MCP 服务查询或操作外部系统。用户在「Agent 设置 → 工具与连接」管理个人连接；管理员在「管理后台 → MCP 管理」提供平台连接和市场条目。配置保存在服务端，后续会话可以使用已启用且已授权的工具。
 
 当前支持 Streamable HTTP 和 SSE 两种远端连接方式。不支持在影策服务器上执行用户填写的 `npx`、shell 命令或上传的本地 MCP 程序，也没有自动完成第三方 OAuth 登录的界面。需要 OAuth 的服务应先取得适用凭据，或部署支持当前认证方式的适配服务。

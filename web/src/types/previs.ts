@@ -50,6 +50,7 @@ export type PrevisKeyframe = {
     time: number;
     transform: PrevisTransform;
     easing?: PrevisKeyframeEasing;
+    pose?: PrevisPose;
 };
 
 export type PrevisFingerBone =
@@ -213,6 +214,11 @@ export type PrevisLight = {
     castShadow: boolean;
 };
 
+export type PrevisShotObjectState = { objectId: string } & Partial<Pick<PrevisObject, "visible" | "transform" | "pose" | "keyframes" | "boneOverrides" | "boneTracks" | "motions" | "motionClips">> & {
+        motionPath?: PrevisMotionPath | null;
+        activeMotionClipId?: string | null;
+    };
+
 export type PrevisShot = {
     id: string;
     name: string;
@@ -221,7 +227,7 @@ export type PrevisShot = {
     fps: 24 | 25 | 30;
     aspectRatio?: PrevisAspectRatio;
     dramaShotId?: string;
-    objectStates?: Array<{ objectId: string; visible?: boolean; transform?: PrevisTransform }>;
+    objectStates?: PrevisShotObjectState[];
     renderResourceId?: string;
     renderKind?: "frame" | "video";
     shotSize: PrevisShotSize;

@@ -752,6 +752,11 @@
                   "minItems": 3,
                   "type": "array"
                 },
+                "shotId": {
+                  "description": "对象姿态/变换/动画的镜头作用域；省略为场景全局。逐镜编辑必须指定",
+                  "maxLength": 80,
+                  "type": "string"
+                },
                 "shotSize": {
                   "enum": [
                     "extreme_wide",

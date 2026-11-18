@@ -5,6 +5,10 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 预演台外部 MCP 的逐镜状态
+
+`/api/mcp` 的预演工具可按当前用户的 `canvasId` 读取，`get_previs_scene` 也可用 `nodeId` 解析场景。`apply_previs_patch` 使用场景 `snapshotHash`、可选画布 `expectedRevision` 和幂等键，整批原子写入。对象动画操作的 `shotId` 表示镜头内覆盖，省略表示场景全局；读取指定镜头会返回独立轨道与首末状态。`render_previs_frame` 返回真实渲染 PNG 与资源信息，保存预览后返回新快照，不调用正式视频模型。详细示例见 [Agent MCP](/docs/backend/agent-mcp)。
+
 ## 秘塔 H3 的声音能力
 
 内部 Agent 的 `model_list` 对秘塔 MiniMax H3 返回 `audioOutput: {mode:"native",supported:true,toggleSupported:false}`。`options.video.generateAudio.supported=false` 表示没有独立声音开关，不能据此判为默片；现场声音需在提示词明确描述，产物音轨与对白质量仍需验收。H3 插件创建与轮询路径按 origin 根路径拼接，避免重复加入 Base URL 的路径。

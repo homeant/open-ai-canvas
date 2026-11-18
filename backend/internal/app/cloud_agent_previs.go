@@ -90,10 +90,16 @@ func cloudAgentPrevisSceneRead(repo *repository.Repository, userID, canvasID str
 	for _, id := range args.ObjectIDs {
 		objectIDs[id] = true
 	}
-	projection := projectPrevisScene(scene, args.ShotID, objectIDs)
+	selectedScene := previsSceneForShot(scene, args.ShotID)
+	projection := projectPrevisScene(selectedScene, args.ShotID, objectIDs)
+	if args.ShotID != "" {
+		shot, _ := findPrevisShot(scene, args.ShotID)
+		projection["shotFrames"] = previsShotFrames(scene, shot, objectIDs)
+		projection["animationScope"] = "shot.objectStates 覆盖场景对象；补丁的 shotId 指定独立镜头，省略则修改场景全局。首末状态不包含骨骼蒙皮结果，实际画面请 render_previs_frame。"
+	}
 	if args.IncludeTransforms {
 		// Augment with full spatial data for layout planning: object positions, camera transforms, FOV
-		projection["spatialLayout"] = cloudAgentPrevisSpatialLayout(scene)
+		projection["spatialLayout"] = cloudAgentPrevisSpatialLayout(selectedScene)
 		projection["coordinateGuide"] = "坐标系: Y轴向上，单位为米，地面Y=0。人物高约1.8m。position=[X,Y,Z]，rotation=[绕X,绕Y,绕Z弧度]。演员原点在脚底，Y=脚底离地高度：站上桌面/台阶/屋顶时设为台面高度，低于0会被拉回地面；box/sphere/cylinder原点在中心。target是摄影机焦点坐标。"
 	}
 	return map[string]any{

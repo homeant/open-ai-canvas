@@ -62,6 +62,7 @@ type cloudAgentPrevisPatchOperation struct {
 	Visible       *bool   `json:"visible,omitempty"`
 	Pose          string  `json:"pose,omitempty"`
 	Motion        string  `json:"motion,omitempty"`
+	ShotID        string  `json:"shotId,omitempty"`
 
 	CharacterAssetID   *string `json:"characterAssetId,omitempty"`
 	CharacterVersionID *string `json:"characterVersionId,omitempty"`
@@ -144,6 +145,7 @@ func cloudAgentPrevisPatchOperationSchema() map[string]any {
 		"renderResourceId":   map[string]any{"type": "string", "maxLength": 80},
 		"renderKind":         map[string]any{"type": "string", "enum": []string{"frame", "video"}},
 		"id":                 map[string]any{"type": "string", "maxLength": 80, "description": "目标或新建资源 ID"},
+		"shotId":             map[string]any{"type": "string", "maxLength": 80, "description": "对象姿态/变换/动画的镜头作用域；省略为场景全局。逐镜编辑必须指定"},
 		"name":               map[string]any{"type": "string", "maxLength": cloudAgentPrevisTextLimit},
 		"title":              map[string]any{"type": "string", "maxLength": cloudAgentPrevisTextLimit},
 		"kind":               map[string]any{"type": "string", "enum": []string{"primitive", "actor", "model"}},
@@ -622,6 +624,9 @@ func cloudAgentPrevisValidateScene(scene map[string]any) error {
 				return BadAuthRequest("镜头对象状态引用无效或重复")
 			}
 			seenStates[objectID] = true
+			if err := validatePrevisObjectTrack(previsShotObject(objectByID[objectID], shot), numberValue(shot["duration"], 5)); err != nil {
+				return err
+			}
 			if transform, ok := state["transform"]; ok {
 				if err := cloudAgentPrevisValidateTransform(transform, "镜头对象状态"); err != nil {
 					return err
@@ -1337,6 +1342,19 @@ func cloudAgentPrevisUpsertKeyframe(item map[string]any, operation cloudAgentPre
 		}
 	}
 	item["keyframes"] = keyframes
+	if operation.Pose != "" {
+		if stringValue(item["kind"]) != "actor" && stringValue(item["primitive"]) != "character" {
+			return BadAuthRequest("姿态关键帧只能用于演员")
+		}
+		if err := cloudAgentPrevisValidatePose(operation.Pose); err != nil {
+			return err
+		}
+		for _, frame := range keyframes {
+			if math.Abs(numberValue(frame["time"], -1)-*operation.Time) < 0.001 {
+				frame["pose"] = operation.Pose
+			}
+		}
+	}
 	return nil
 }
 
@@ -1706,6 +1724,9 @@ func cloudAgentPrevisFindByID(items []map[string]any, id string) map[string]any 
 }
 
 func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAgentPrevisPatchOperation, index int) (cloudAgentApprovalPreviewItem, error) {
+	if operation.ShotID != "" {
+		return applyPrevisShotObjectPatch(scene, operation, index)
+	}
 	if err := cloudAgentPrevisValidateText(operation.Type, fmt.Sprintf("operations[%d].type", index), 40, true); err != nil {
 		return cloudAgentApprovalPreviewItem{}, err
 	}

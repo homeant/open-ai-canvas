@@ -58,6 +58,7 @@ import {
 } from "@/lib/canvas/previs/previs-recovery";
 import { disposePrevisAdoptionFailure, disposePrevisHelper, disposePrevisModelResources, disposePrevisObject3D, resolvePrevisLoadOwnership } from "@/lib/canvas/previs/previs-resources";
 import { resolvePrevisActorColor, previsTransformPathLength, finitePrevisTransformKeyframes, interpolatePrevisTransform } from "@/lib/canvas/previs/previs-scene";
+import { resolvePrevisShotObject } from "@/lib/canvas/previs/previs-shot-state";
 import {
     PREVIS_DEFAULT_VIEW_MODE,
     previsViewFramingKey,
@@ -518,7 +519,7 @@ function PrevisSceneContent({
     const containerAspect = size.width / Math.max(size.height, 1);
     const rawCamFraming = resolvePrevisViewFraming({ scene, mode: viewMode, playhead, cameraId: selectedCameraId, viewportAspect: containerAspect });
     const shotAspect = previsAspectValue(resolvePrevisActiveShot(scene)?.aspectRatio, containerAspect);
-    const shotObjectStates = new Map(resolvePrevisActiveShot(scene)?.objectStates?.map((state) => [state.objectId, state] as const) ?? []);
+    const shotObjects = useMemo(() => scene.objects.map((object) => resolvePrevisShotObject(object, resolvePrevisActiveShot(scene), playhead)), [scene, playhead]);
     const camFraming = rawCamFraming ? { ...rawCamFraming, fov: resolvePrevisContainerFov(rawCamFraming.fov, shotAspect, containerAspect) } : null;
     const orthoFraming = resolvePrevisOrthographicFraming({ scene, mode: viewMode });
     const effectiveViewport = resolvePrevisEffectiveViewport({ mode: viewMode, framing: camFraming });
@@ -530,8 +531,8 @@ function PrevisSceneContent({
         [effectiveViewport.orbit],
     );
     const actorMotionPaths = useMemo(
-        () => (showMotionPaths ? scene.objects.filter((object) => object.visible && (object.kind === "actor" || object.primitive === "character") && previsTransformPathLength(object.keyframes) > 0.001) : []),
-        [scene.objects, showMotionPaths],
+        () => (showMotionPaths ? shotObjects.filter((object) => object.visible && (object.kind === "actor" || object.primitive === "character") && previsTransformPathLength(object.keyframes) > 0.001) : []),
+        [shotObjects, showMotionPaths],
     );
     const cameraMotionPaths = useMemo(() => (showMotionPaths ? scene.cameras.filter((item) => previsTransformPathLength(item.keyframes) > 0.001) : []), [scene.cameras, showMotionPaths]);
     const suspendDisplayMaterialOverride = useCallback(() => {
@@ -854,11 +855,7 @@ function PrevisSceneContent({
                     onMoveWaypoint={onMovePathWaypoint ? (index, point) => onMovePathWaypoint("camera", item.id, index, point) : undefined}
                 />
             ))}
-            {scene.objects
-                .map((item) => {
-                    const state = shotObjectStates.get(item.id);
-                    return state ? { ...item, visible: state.visible ?? item.visible, transform: state.transform ?? item.transform, keyframes: state.transform ? [] : item.keyframes, motionPath: state.transform ? undefined : item.motionPath } : item;
-                })
+            {shotObjects
                 .filter((item) => item.visible)
                 .map((object) => (
                     <PrevisObjectView

@@ -48,6 +48,7 @@ function RenderHost() {
                 loads.current = new Map(next.objects.filter((item) => (shotStates.get(item.id)?.visible ?? item.visible) && (item.kind === "model" || item.kind === "actor") && item.url).map((item) => [item.id, "loading" as const]));
                 setScene(next);
                 setPlayhead(request.time ?? 0);
+                await pause(40);
                 const deadline = performance.now() + 30_000;
                 while (performance.now() < deadline) {
                     const ready = document.querySelector('.previs-viewport-shell[data-renderer-ready="true"]');
@@ -59,6 +60,7 @@ function RenderHost() {
                 if (!document.querySelector('.previs-viewport-shell[data-renderer-ready="true"]') || [...loads.current.values()].some((status) => status !== "ready")) throw new Error("预演视口或模型加载超时");
                 const handle = viewport.current;
                 if (!handle) throw new Error("预演视口未就绪");
+                await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
                 const blob =
                     request.kind === "frame" ? await handle.capture("clay", { longEdge: request.longEdge ?? 1280 }) : await handle.recordVideo(request.duration ?? shot.duration, request.fps ?? shot.fps, "clay", { longEdge: request.longEdge ?? 720 });
                 return blobResult(blob);

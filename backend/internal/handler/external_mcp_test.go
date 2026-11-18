@@ -93,6 +93,25 @@ func TestExternalPrevisOperationMCPInputSchema(t *testing.T) {
 	}
 }
 
+func TestExternalPrevisCanvasOnlyMCPInputSchema(t *testing.T) {
+	read, err := jsonschema.For[service.ExternalPrevisReadRequest](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range read.Required {
+		if field == "dramaId" || field == "episodeId" || field == "sceneId" || field == "nodeId" {
+			t.Fatalf("canvas/node read requires unrelated field %s", field)
+		}
+	}
+	patch, err := jsonschema.For[service.ExternalPrevisPatchOperation](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patch.Properties["shotId"] == nil {
+		t.Fatal("shot scope is missing from MCP input schema")
+	}
+}
+
 func TestExternalMCPDiscoveryAndChallenge(t *testing.T) {
 	t.Setenv("CANVAS_MCP_PUBLIC_ORIGIN", "https://yingce.example.com")
 	svc := externalAccessTestService(t)
