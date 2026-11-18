@@ -8,7 +8,7 @@ import (
 
 // 迁移前散落在 app 包里的分类表，逐字抄录用于证明注册表推导结果等价。
 var (
-	legacyWrite      = []string{"canvas_apply_ops", "canvas_merge_text", "canvas_arrange_nodes", "generate_media", "image_layer_split", "canvas_create_storyboard", "canvas_edit_storyboard", "canvas_edit_batch_table", "canvas_create_character", "previs_scene_create", "previs_apply_patch", "drama_adopt_canvas_media", "generate_media_batch", "canvas_build_board"}
+	legacyWrite      = []string{"canvas_apply_ops", "canvas_merge_text", "canvas_arrange_nodes", "generate_media", "image_layer_split", "canvas_create_storyboard", "canvas_edit_storyboard", "canvas_edit_batch_table", "canvas_create_character", "canvas_bind_character_voice", "previs_scene_create", "previs_apply_patch", "drama_adopt_canvas_media", "generate_media_batch", "canvas_build_board"}
 	legacyCacheable  = []string{"agent_profile_read", "canvas_get_state", "canvas_read_storyboard", "previs_scene_read", "skill_read_file", "model_list"}
 	legacyReadOnly   = []string{"agent_profile_read", "canvas_get_state", "canvas_read_text", "canvas_read_storyboard", "previs_scene_read", "canvas_read_batch_table", "canvas_list_node_types", "skill_read_file", "skill_search", "skill_market_search", "model_list", "task_get", "drama_get_context", "canvas_preflight"}
 	legacyCanvasRev  = []string{"canvas_get_state", "canvas_read_text", "canvas_read_storyboard", "previs_scene_read"}
@@ -57,6 +57,15 @@ func TestCacheableToolsAreReadOnly(t *testing.T) {
 		p := Of(name)
 		if p.Cacheable && !p.ReadOnly() {
 			t.Errorf("%s 可缓存但不是只读工具", name)
+		}
+	}
+}
+
+func TestCharacterVoiceBindingRequiresApprovalInEveryPermissionMode(t *testing.T) {
+	policy := Of(CanvasBindCharacterVoice)
+	for _, mode := range []string{"auto", "review", "read_only"} {
+		if !policy.ApprovalRequired(mode) {
+			t.Errorf("角色声音绑定在 %s 模式不能绕过审批", mode)
 		}
 	}
 }

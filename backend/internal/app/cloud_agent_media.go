@@ -52,6 +52,9 @@ func (s *Service) cloudAgentModelList(userID string, intent *ModelRequestIntent)
 				if m.Protocol == model.ChannelInterfaceType("metaso-h3") && strings.HasPrefix(strings.ToLower(m.ModelKey), "minimax-h3") {
 					item["audioOutput"] = map[string]any{"mode": "native", "supported": true, "toggleSupported": false, "guidance": "H3 与视频同步生成原生音轨；generateAudio.supported=false 只表示没有单独开关，不表示视频不能出声。需要现场声音时在 prompt 写明，不要传 videoGenerateAudio。"}
 				}
+				if m.Protocol == model.ChannelInterfaceEvoLinkQwenAudioTTS {
+					item["audioSettings"] = cloudAgentQwenAudioSettings()
+				}
 				items = append(items, item)
 			}
 		}
@@ -66,7 +69,7 @@ func (s *Service) cloudAgentModelList(userID string, intent *ModelRequestIntent)
 	}
 	return map[string]any{
 		"source": catalog.Source, "models": items, "intent": intent,
-		"generationGuidance": "复制 generationArguments，补 prompt 和 referenceNodeIds 即可；续用草稿传 nodeId，新节点 ID/标题/连线交执行器。规格默认省略；用户本轮要求改变时传支持值与 configurationChange，其他已有配置继承。不要传 parameters、binding、count 或 image_to_image。",
+		"generationGuidance": "复制 generationArguments，补 prompt 和 referenceNodeIds 即可；Qwen TTS 的 prompt 只写实际朗读文本，音色和声音指令分别传 voice、voiceInstruction，范围见 audioSettings。续用草稿传 nodeId，新节点 ID/标题/连线交执行器。规格默认省略；用户本轮要求改变时传支持值与 configurationChange，其他已有配置继承。不要传 parameters、binding、count 或 image_to_image。",
 	}, nil
 }
 
@@ -141,6 +144,8 @@ type cloudAgentMediaArgs struct {
 	ImageResolution            string                              `json:"imageResolution"`
 	ImageParameters            string                              `json:"imageParameters,omitempty"`
 	Quality                    string                              `json:"quality"`
+	Voice                      string                              `json:"voice,omitempty"`
+	VoiceInstruction           string                              `json:"voiceInstruction,omitempty"`
 	VideoGenerateAudio         *bool                               `json:"videoGenerateAudio"`
 	VideoWatermark             *bool                               `json:"videoWatermark"`
 	VideoArkPrivateAssetUpload *bool                               `json:"videoArkPrivateAssetUpload"`
@@ -578,6 +583,15 @@ func validateCloudAgentMediaShape(a cloudAgentMediaArgs, state *cloudAgentRuntim
 	if utf8.RuneCountInString(a.Prompt) > 16000 {
 		return cloudAgentFieldError("prompt", "length_exceeded", fmt.Sprintf("提示词共%d字符，超过16000字符上限；请先告知用户，不要擅自删改关键内容", utf8.RuneCountInString(a.Prompt)))
 	}
+	if utf8.RuneCountInString(a.Voice) > 160 {
+		return cloudAgentFieldError("voice", "length_exceeded", "音色 ID 不能超过 160 字符")
+	}
+	if utf8.RuneCountInString(a.VoiceInstruction) > 2000 {
+		return cloudAgentFieldError("voiceInstruction", "length_exceeded", "声音指令不能超过 2000 字符")
+	}
+	if mode != "audio" && (a.Voice != "" || a.VoiceInstruction != "") {
+		return cloudAgentFieldError("voice", "invalid_value", "音色和声音指令仅用于音频生成")
+	}
 	if a.Duration < 0 {
 		return cloudAgentFieldError("durationSeconds", "invalid_value", "生成时长不能为负数，请传入非负整数")
 	}
@@ -757,6 +771,9 @@ func (s *Service) prepareCloudAgentMedia(run *model.CloudAgentExecution, state *
 			}
 		}
 	}
+	if err := s.validateCloudAgentQwenAudio(&a); err != nil {
+		return CreateTaskRequest{}, nil, err
+	}
 	// Validate materialized values as well as the original tool shape.
 	if err := validateCloudAgentMediaShape(a, state); err != nil {
 		return CreateTaskRequest{}, nil, err
@@ -925,6 +942,10 @@ func applyCloudAgentResolvedMediaDefaults(req *CreateTaskRequest, plan *cloudAge
 			}
 			plan.Args.VideoArkPrivateAssetUpload = &privateUpload
 		}
+	}
+	if plan.Args.Mode == "audio" {
+		plan.Args.Voice = stringValue(config["audioVoice"])
+		plan.Args.VoiceInstruction = stringValue(config["audioInstructions"])
 	}
 	plan.Args.Prepared = nil
 	req.Input = input

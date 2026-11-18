@@ -61,7 +61,7 @@ func cloudAgentMediaDraftConfiguration(a cloudAgentMediaArgs, doc map[string]any
 		options, selection = spec.Options, spec.ModelSelection
 	} else {
 		config := map[string]any{}
-		for _, key := range []string{"size", "quality", "imageResolution", "imageParameters", "vquality"} {
+		for _, key := range []string{"size", "quality", "imageResolution", "imageParameters", "vquality", "audioVoice", "audioInstructions"} {
 			config[key] = meta[key]
 		}
 		config["videoSeconds"], config["videoGenerateAudio"], config["videoWatermark"] = meta["seconds"], meta["generateAudio"], meta["watermark"]
@@ -93,6 +93,7 @@ func applyCloudAgentMediaDraftOptions(a *cloudAgentMediaArgs, options contract.O
 		{"size", options.Size, &a.Size}, {"quality", options.Quality, &a.Quality},
 		{"imageResolution", options.ImageResolution, &a.ImageResolution}, {"imageParameters", options.ImageParameters, &a.ImageParameters},
 		{"quality", options.Resolution, &a.Quality},
+		{"voice", options.AudioVoice, &a.Voice}, {"voiceInstruction", options.AudioInstructions, &a.VoiceInstruction},
 	} {
 		if field.stored != nil && !a.ConfigurationChange.includes(field.name) {
 			*field.target = *field.stored

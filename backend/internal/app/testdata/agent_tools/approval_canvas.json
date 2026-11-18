@@ -1683,6 +1683,31 @@
   },
   {
     "function": {
+      "description": "把当前画布已就绪并验收的音频绑定到现有角色卡。Qwen 系统音色保留音色 ID 与声音指令；更改角色资产版本，必须由用户审批。",
+      "name": "canvas_bind_character_voice",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "audioNodeId": {
+            "description": "当前画布已就绪的音频节点 ID",
+            "type": "string"
+          },
+          "characterNodeId": {
+            "description": "现有角色卡节点 ID",
+            "type": "string"
+          }
+        },
+        "required": [
+          "characterNodeId",
+          "audioNodeId"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
       "description": "操作批量创作表：增改删行、切换 try_on/creative、设1/5/10并发、增删参考图列或设全局提示词。先读 canvas_read_batch_table 获取最新 snapshotHash/rowId。行 patch 仅允许 enabled、inputNodeIds、prompt；prompt 可用返回的 @参考图1 等 mentionToken 指代本行图片。append 未传 inputNodeIds 继承上一行参考图；图片ID必须来自当前画布。禁止写 outputNodeId、任务状态、URL、storageKey、metadata。本工具只改计划，不提交收费生成。",
       "name": "canvas_edit_batch_table",
       "parameters": {
@@ -2185,11 +2210,13 @@
                     "quality",
                     "imageResolution",
                     "durationSeconds",
-                    "videoGenerateAudio"
+                    "videoGenerateAudio",
+                    "voice",
+                    "voiceInstruction"
                   ],
                   "type": "string"
                 },
-                "maxItems": 6,
+                "maxItems": 8,
                 "minItems": 1,
                 "type": "array",
                 "uniqueItems": true
@@ -2279,6 +2306,14 @@
           },
           "videoStartFrameNodeId": {
             "description": "视频首帧图片ID，须在 referenceNodeIds 中",
+            "type": "string"
+          },
+          "voice": {
+            "description": "仅音频；从 model_list.models[].audioSettings.voice.voices 选择音色 ID，也可使用当前账号已有的自定义音色 ID",
+            "type": "string"
+          },
+          "voiceInstruction": {
+            "description": "仅音频；独立声音指令，不写进朗读 prompt。Qwen 最多 100 计费字符",
             "type": "string"
           }
         },
