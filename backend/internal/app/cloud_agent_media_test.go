@@ -195,6 +195,39 @@ func TestCloudAgentMediaApprovalCreatesNodeReferencesAndResult(t *testing.T) {
 	}
 }
 
+func TestCloudAgentMetasoH3CatalogSeparatesAudioOutputFromToggle(t *testing.T) {
+	s, db, _ := agentMediaFixture(t)
+	capability := DefaultModelCapabilityConfigForModel("metaso-h3", "MiniMax-H3")
+	for _, row := range []any{
+		&model.ChannelModel{ID: "metaso-h3-cm", ChannelID: "channel", ModelKey: "MiniMax-H3", DisplayName: "MiniMax H3", Capability: "video", Protocol: model.ChannelInterfaceType("metaso-h3"), CapabilityConfigJSON: mustEncodeModelCapabilityConfig(t, capability), BillingMode: "per_second", PriceConfigured: true, Enabled: true},
+		&model.ChannelModelPriceTier{ID: "metaso-h3-tier", ChannelModelID: "metaso-h3-cm", SelectorKey: "{}", SelectorJSON: "{}", BillingMode: "per_second", UnitPriceMicrocredits: 1, PriceConfigured: true, Enabled: true},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	catalog, err := s.cloudAgentModelList(testGroupUserID(s), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range catalog.(map[string]any)["models"].([]map[string]any) {
+		selection := item["selection"].(map[string]any)
+		if selection["channelModelKey"] != "MiniMax-H3" {
+			continue
+		}
+		output := item["audioOutput"].(map[string]any)
+		if output["mode"] != "native" || output["supported"] != true || output["toggleSupported"] != false || !strings.Contains(output["guidance"].(string), "不表示视频不能出声") {
+			t.Fatalf("H3 audio output = %#v", output)
+		}
+		video := item["options"].(map[string]any)["video"].(map[string]any)
+		if video["generateAudio"].(map[string]any)["supported"] != false {
+			t.Fatalf("H3 unexpectedly advertises an audio toggle: %#v", video["generateAudio"])
+		}
+		return
+	}
+	t.Fatal("H3 missing from model list")
+}
+
 func TestCloudAgentMediaReferenceAndSnapshotGuards(t *testing.T) {
 	s, db, a := agentMediaFixture(t)
 	run, state := agentMediaRun(t, s, a, "auto")
