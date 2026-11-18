@@ -399,17 +399,21 @@ type DramaCanvasAssetInput struct {
 
 // DramaTakeView 是一个产物版本；Source 区分流水线生成（pipeline）、直接上传（upload）与画布采用（canvas）。
 type DramaTakeView struct {
-	ID         string `json:"id"`
-	OwnerID    string `json:"ownerId"`
-	Kind       string `json:"kind"`
-	Version    int    `json:"version"`
-	ResourceID string `json:"resourceId"`
-	TaskID     string `json:"taskId,omitempty"`
-	Prompt     string `json:"prompt"`
-	DurationMs int64  `json:"durationMs,omitempty"`
-	Source     string `json:"source"`
-	Current    bool   `json:"current"`
-	CreatedAt  string `json:"createdAt"`
+	ShotRevision   string `json:"shotRevision"`
+	PromptRevision int64  `json:"promptRevision"`
+	GenerationJSON string `json:"generationJson"`
+	ScriptMatch    string `json:"scriptMatch"`
+	ID             string `json:"id"`
+	OwnerID        string `json:"ownerId"`
+	Kind           string `json:"kind"`
+	Version        int    `json:"version"`
+	ResourceID     string `json:"resourceId"`
+	TaskID         string `json:"taskId,omitempty"`
+	Prompt         string `json:"prompt"`
+	DurationMs     int64  `json:"durationMs,omitempty"`
+	Source         string `json:"source"`
+	Current        bool   `json:"current"`
+	CreatedAt      string `json:"createdAt"`
 	// Model 是产出该版本的任务模型标识（若能关联到任务）；仅用于展示。
 	Model string `json:"model,omitempty"`
 }
@@ -596,7 +600,13 @@ type DramaEpisodeDetail struct {
 
 // DramaSegmentView 是一个剧情段：视频提示词、参考图、生成方式与视频结果。
 type DramaSegmentView struct {
-	ID string `json:"id"`
+	PromptSeconds         int    `json:"promptSeconds"`
+	ShotRevision          string `json:"shotRevision"`
+	PromptRevision        int64  `json:"promptRevision"`
+	PromptShotRevision    string `json:"promptShotRevision"`
+	CandidateID           string `json:"candidateId,omitempty"`
+	CandidateShotRevision string `json:"candidateShotRevision,omitempty"`
+	ID                    string `json:"id"`
 	// Revision 用于画布采用时的乐观并发校验；UpdatedAt 是段记录最后更新时间（RFC3339），段还没有记录时为空。
 	Revision   int64    `json:"revision"`
 	UpdatedAt  string   `json:"updatedAt,omitempty"`
@@ -634,6 +644,7 @@ type DramaSegmentView struct {
 
 // DramaSegmentRequest 是一段视频请求的预演，与提交时同一函数计算。
 type DramaSegmentRequest struct {
+	PreparationError string `json:"preparationError,omitempty"`
 	// Operation：image_to_video（上一段最后一帧作首帧）、reference_to_video（参考图）、text_to_video。
 	Operation       string `json:"operation"`
 	Seconds         int    `json:"seconds"`
@@ -645,7 +656,7 @@ type DramaSegmentRequest struct {
 	Resolution  string `json:"resolution,omitempty"`
 	// PromptMaxChars 是视频模型的提示词字符上限（含开头的参考图说明）；0 表示未声明。
 	PromptMaxChars int `json:"promptMaxChars,omitempty"`
-	// GenerateAudio 表示视频模型同步生成对白与音效；为 false 时本段视频没有声音。
+	// GenerateAudio 是模型合同的音频生成开关，不是产物音轨、人声或对白质量的检测结果。
 	GenerateAudio bool `json:"generateAudio"`
 	// FirstFrame 是上一段视频的最后一帧；第一段为空。FirstFramePending 表示上一段还没生成，生成后才能提交本段。
 	FirstFrameResourceID string                  `json:"firstFrameResourceId,omitempty"`
@@ -701,16 +712,16 @@ type UpdateDramaSegmentRequest struct {
 
 // UpdateDramaShotRequest 修改镜头的剧本内容；镜头只是撰写视频提示词的素材，修改后本段提示词标记过期。
 type UpdateDramaShotRequest struct {
-	Speaker     *string `json:"speaker"`
-	Dialogue    *string `json:"dialogue"`
-	Action      *string `json:"action"`
-	ShotSize    *string `json:"shotSize"`
-	Camera      *string `json:"camera"`
-	ImagePrompt *string `json:"imagePrompt"`
-	VideoPrompt *string `json:"videoPrompt"`
+	Speaker     *string `json:"speaker,omitempty"`
+	Dialogue    *string `json:"dialogue,omitempty"`
+	Action      *string `json:"action,omitempty"`
+	ShotSize    *string `json:"shotSize,omitempty"`
+	Camera      *string `json:"camera,omitempty"`
+	ImagePrompt *string `json:"imagePrompt,omitempty"`
+	VideoPrompt *string `json:"videoPrompt,omitempty"`
 	// Transition 是进入本镜头的转场；DurationSeconds 手动设置镜头时长。
-	Transition      *string  `json:"transition"`
-	DurationSeconds *float64 `json:"durationSeconds"`
+	Transition      *string  `json:"transition,omitempty"`
+	DurationSeconds *float64 `json:"durationSeconds,omitempty"`
 }
 
 // SetDramaCastVoiceRequest 为角色指定声音：VoiceProfileID 从声音库选，SampleResourceID 是刚上传或录制的样本音频

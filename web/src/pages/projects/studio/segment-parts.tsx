@@ -45,6 +45,7 @@ export function segmentState(segment: DramaSegment): { tone: SegmentTone; label:
 }
 
 export function promptReady(segment: DramaSegment) {
+    if (segment.promptStatus === "conflict" || segment.promptStatus === "review") return false;
     return segment.custom || segment.promptStatus === "ready";
 }
 

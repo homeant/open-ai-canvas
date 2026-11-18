@@ -285,12 +285,31 @@ func (s *Service) DramaTakes(userID, projectID, ownerID, kind string) (map[strin
 		return nil, err
 	}
 	views := make([]DramaTakeView, 0, len(takes))
+	currentShotRevision := ""
+	if kind == "video" {
+		segment, err := s.repo.DramaSegment(project.ID, ownerID)
+		if err != nil {
+			return nil, err
+		}
+		shots, err := s.repo.DramaShots(segment.EpisodeID)
+		if err != nil {
+			return nil, err
+		}
+		currentShotRevision = dramaShotRevision(shots, segment.SegmentIndex)
+	}
 	currentMarked := false
 	for _, take := range takes {
 		view := DramaTakeView{
+			ShotRevision: take.ShotRevision, PromptRevision: take.PromptRevision, GenerationJSON: take.GenerationJSON, ScriptMatch: "unknown",
 			ID: take.ID, OwnerID: take.OwnerID, Kind: take.Kind, Version: take.Version, ResourceID: take.ResourceID, TaskID: take.TaskID,
 			Prompt: truncateRunes(take.Prompt, 300), DurationMs: take.DurationMs, Source: dramaTakeSource(take, taskProjects, project.ID),
 			CreatedAt: take.CreatedAt.Format(time.RFC3339), Model: taskModels[take.TaskID],
+		}
+		if take.ShotRevision != "" && currentShotRevision != "" {
+			view.ScriptMatch = "mismatch"
+			if take.ShotRevision == currentShotRevision {
+				view.ScriptMatch = "match"
+			}
 		}
 		// 同一资源可能有多条版本记录（例如重复采用），只把最新一条标为当前。
 		if !currentMarked && current != "" && take.ResourceID == current {

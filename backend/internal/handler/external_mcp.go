@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -18,6 +19,12 @@ type mcpRequestUserKey struct{}
 func externalMCPTool[In any](server *mcp.Server, name, description string, fn func(context.Context, In) (any, error)) {
 	mcp.AddTool(server, &mcp.Tool{Name: name, Description: description}, func(ctx context.Context, _ *mcp.CallToolRequest, input In) (*mcp.CallToolResult, any, error) {
 		value, err := fn(ctx, input)
+		var appErr *service.AppError
+		if errors.As(err, &appErr) {
+			body := map[string]any{"code": appErr.Code, "reason": appErr.Reason, "msg": appErr.Message, "details": appErr.Details}
+			data, _ := json.Marshal(body)
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}, nil, nil
+		}
 		return nil, value, err
 	})
 }
@@ -36,6 +43,7 @@ func externalMCPAllow(ctx context.Context, svc *service.Service, subject string,
 func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "yingce-video-creation", Version: "1.0.0"}, nil)
 	userID := user.ID
+	registerDramaEditingMCP(server, svc, userID)
 	externalMCPTool(server, "list_models", "列出当前用户可用的创作模型及能力", func(_ context.Context, _ struct{}) (any, error) {
 		return svc.ModelCatalogForUser(user, nil)
 	})
@@ -156,15 +164,6 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	}) (any, error) {
 		return svc.DramaSegmentDetail(userID, input.DramaID, input.EpisodeID, input.SegmentIndex)
 	})
-	externalMCPTool(server, "edit_segment_prompt", "保存一段完整视频提示词，不触发生成；可用 expectedRevision 防止覆盖新版本", func(_ context.Context, input struct {
-		DramaID          string `json:"dramaId"`
-		EpisodeID        string `json:"episodeId"`
-		SegmentIndex     int    `json:"segmentIndex"`
-		Prompt           string `json:"prompt"`
-		ExpectedRevision *int64 `json:"expectedRevision,omitempty"`
-	}) (any, error) {
-		return svc.EditDramaSegmentPrompt(userID, input.DramaID, input.EpisodeID, input.SegmentIndex, service.EditDramaSegmentPromptRequest{Prompt: input.Prompt, ExpectedRevision: input.ExpectedRevision})
-	})
 	externalMCPTool(server, "list_segment_versions", "列出本段视频版本、当前版本及各版本资源和尺寸时长", func(_ context.Context, input struct {
 		DramaID      string `json:"dramaId"`
 		EpisodeID    string `json:"episodeId"`
@@ -277,18 +276,11 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	}) (any, error) {
 		return svc.ApproveDramaEpisode(userID, input.DramaID, input.EpisodeID)
 	})
-	externalMCPTool(server, "generate_segments", "按剧情段编号生成或重生成视频", func(_ context.Context, input struct {
-		DramaID   string                               `json:"dramaId"`
-		EpisodeID string                               `json:"episodeId"`
-		Request   service.GenerateDramaSegmentsRequest `json:"request"`
-	}) (any, error) {
-		return svc.GenerateDramaSegments(userID, input.DramaID, input.EpisodeID, input.Request)
+	externalMCPTool(server, "generate_segments", "按段生成或重生成视频；需要幂等键；单段用 request.expectedPromptRevision，多段用 expectedSegmentRevisions 逐段校验，原子排队且重试不重复生成", func(_ context.Context, input service.GenerateDramaMCPRequest) (any, error) {
+		return svc.GenerateDramaSegmentsMCP(userID, input)
 	})
-	externalMCPTool(server, "compose_episode", "合成当前剧集已有的剧情段视频", func(_ context.Context, input struct {
-		DramaID   string `json:"dramaId"`
-		EpisodeID string `json:"episodeId"`
-	}) (any, error) {
-		return svc.ComposeDramaEpisode(userID, input.DramaID, input.EpisodeID)
+	externalMCPTool(server, "compose_episode", "合成当前剧集已有的剧情段视频；需要 expectedRevision 和幂等键；返回紧凑 jobId/taskId/revision/资源/状态回执，详情另读 get_episode。不会批准剧集", func(_ context.Context, input service.ComposeDramaMCPRequest) (any, error) {
+		return svc.ComposeDramaEpisodeMCP(userID, input)
 	})
 	return server
 }

@@ -39,10 +39,19 @@ var errMediaProbeUnavailable = errors.New("媒体探测依赖未安装（需要 
 // mediaProbeInfo 是 ffprobe 对一个本地媒体文件的探测结果。没有视频流（纯音频）时宽高为 0；
 // Tags 是容器级（format）标签，键保持 ffprobe 输出的原样大小写。
 type mediaProbeInfo struct {
+	Streams    []DramaMediaStream
 	Width      int
 	Height     int
 	DurationMs int64
 	Tags       map[string]string
+}
+
+type DramaMediaStream struct {
+	Index      int    `json:"index"`
+	CodecType  string `json:"codecType"`
+	CodecName  string `json:"codecName"`
+	Channels   int    `json:"channels,omitempty"`
+	SampleRate string `json:"sampleRate,omitempty"`
 }
 
 func mediaProbeAvailable() bool {
@@ -65,8 +74,8 @@ func probeMediaFile(ctx context.Context, path string) (mediaProbeInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, mediaProbeTimeout)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, bin,
-		"-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=width,height:stream_side_data=rotation:format=duration:format_tags",
+		"-v", "error",
+		"-show_entries", "stream=index,codec_type,codec_name,channels,sample_rate,width,height:stream_side_data=rotation:format=duration:format_tags",
 		"-of", "json", path).Output()
 	if err != nil {
 		return mediaProbeInfo{}, fmt.Errorf("媒体探测失败：%w", err)
@@ -79,8 +88,13 @@ func probeMediaFile(ctx context.Context, path string) (mediaProbeInfo, error) {
 func parseMediaProbeOutput(raw []byte) (mediaProbeInfo, error) {
 	var document struct {
 		Streams []struct {
-			Width        int `json:"width"`
-			Height       int `json:"height"`
+			Index        int    `json:"index"`
+			CodecType    string `json:"codec_type"`
+			CodecName    string `json:"codec_name"`
+			Channels     int    `json:"channels"`
+			SampleRate   string `json:"sample_rate"`
+			Width        int    `json:"width"`
+			Height       int    `json:"height"`
 			SideDataList []struct {
 				Rotation *float64 `json:"rotation"`
 			} `json:"side_data_list"`
@@ -94,8 +108,11 @@ func parseMediaProbeOutput(raw []byte) (mediaProbeInfo, error) {
 		return mediaProbeInfo{}, fmt.Errorf("媒体探测结果无效：%w", err)
 	}
 	info := mediaProbeInfo{Tags: document.Format.Tags}
-	if len(document.Streams) > 0 {
-		stream := document.Streams[0]
+	for _, stream := range document.Streams {
+		info.Streams = append(info.Streams, DramaMediaStream{Index: stream.Index, CodecType: stream.CodecType, CodecName: stream.CodecName, Channels: stream.Channels, SampleRate: stream.SampleRate})
+		if info.Width > 0 {
+			continue
+		}
 		if stream.Width > 0 && stream.Height > 0 && stream.Width <= mediaProbeMaxDimension && stream.Height <= mediaProbeMaxDimension {
 			info.Width, info.Height = stream.Width, stream.Height
 			for _, side := range stream.SideDataList {

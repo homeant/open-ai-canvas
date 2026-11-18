@@ -21,8 +21,11 @@ import (
 )
 
 type dramaRevisionPayload struct {
-	Revision int64 `json:"revision"`
-	Seconds  int   `json:"seconds,omitempty"`
+	ShotRevision   string `json:"shotRevision,omitempty"`
+	PromptRevision int64  `json:"promptRevision,omitempty"`
+	GenerationJSON string `json:"generationJson,omitempty"`
+	Revision       int64  `json:"revision"`
+	Seconds        int    `json:"seconds,omitempty"`
 	// MaxChars 是段提示词正文的字符上限：视频模型提示词上限减去撰写时的参考图说明；0 表示不限。
 	MaxChars int `json:"maxChars,omitempty"`
 	// Condensed 是本次撰写已做的自动精简次数。
@@ -35,6 +38,9 @@ func encodeDramaRevision(revision int64) string {
 }
 
 func dramaPromptReady(segment model.DramaSegment) bool {
+	if segment.PromptStatus == model.DramaPromptConflict || segment.PromptStatus == model.DramaPromptReview {
+		return false
+	}
 	return strings.TrimSpace(segment.VideoPromptOverride) != "" || (segment.PromptStatus == model.DramaMediaReady && strings.TrimSpace(segment.VideoPrompt) != "")
 }
 
@@ -479,7 +485,8 @@ func (r *dramaRun) submitSegmentVideo(job *model.DramaJob) (*model.Task, bool, e
 			}
 			return nil, true, nil
 		}
-		payload, _ := json.Marshal(dramaRevisionPayload{Revision: segment.Revision, Seconds: request.Seconds})
+		generation, _ := json.Marshal(map[string]any{"model": segmentVideoChoice(*segment, r.settings.Models.Video), "request": request})
+		payload, _ := json.Marshal(dramaRevisionPayload{Revision: segment.Revision, Seconds: request.Seconds, ShotRevision: dramaShotRevision(shots, segment.SegmentIndex), PromptRevision: segment.PromptRevision, GenerationJSON: string(generation)})
 		job.PayloadJSON = string(payload)
 		input := map[string]any{"config": config, "referenceImages": refs, "metadata": metadata}
 		if len(audios) > 0 {
@@ -516,7 +523,7 @@ func (r *dramaRun) applySegmentVideo(job *model.DramaJob, task *model.Task) erro
 	current := err == nil && segment.Revision == payload.Revision
 	// 抽尾帧在后台进行，本函数每轮都会重入：段视频已是这条结果时说明版本记录与入库已经做过。
 	if !current || segment.VideoResourceID != resourceID {
-		if err := r.s.repo.CreateDramaTake(&model.DramaTake{ID: newID(), ProjectID: r.project.ID, OwnerID: job.ShotID, Kind: "video", ResourceID: resourceID, TaskID: task.ID, Prompt: task.Prompt, DurationMs: durationMs, CreatedAt: time.Now()}); err != nil {
+		if err := r.s.repo.CreateDramaTake(&model.DramaTake{ID: newID(), ProjectID: r.project.ID, OwnerID: job.ShotID, Kind: "video", ResourceID: resourceID, TaskID: task.ID, Prompt: task.Prompt, DurationMs: durationMs, ShotRevision: payload.ShotRevision, PromptRevision: payload.PromptRevision, GenerationJSON: payload.GenerationJSON, CreatedAt: time.Now()}); err != nil {
 			return err
 		}
 	}

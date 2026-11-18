@@ -139,4 +139,18 @@ func TestDramaMCPSegmentVersionOwnershipAndFrame(t *testing.T) {
 	if frame.ResourceID != segment.VideoResourceID || frame.Width != 320 || frame.Height != 180 || !frame.HasAudio || frame.DurationMs < 1900 || len(frame.JPEG) < 100 || !strings.HasPrefix(string(frame.JPEG), "\xff\xd8") {
 		t.Fatalf("frame metadata: %+v", frame)
 	}
+	media, err := svc.InspectDramaSegmentVersionMedia(context.Background(), "usr-drama", projectID, episodeID, segment.Index, "")
+	if err != nil || media["hasAudioTrack"] != true || media["hasSpeech"] != nil || media["measurementStatus"] != "measured" {
+		t.Fatalf("stream inspection %+v %v", media, err)
+	}
+	streams := media["streams"].([]DramaMediaStream)
+	aac := false
+	for _, stream := range streams {
+		if stream.CodecType == "audio" && stream.CodecName == "aac" {
+			aac = true
+		}
+	}
+	if !aac {
+		t.Fatal("AAC stream not reported")
+	}
 }

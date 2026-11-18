@@ -1,0 +1,84 @@
+---
+title: 短剧 MCP 剧本与分镜编辑
+description: 原文、原子镜头编辑、提示词候选采用、生成预检和媒体版本追溯
+---
+
+# 短剧 MCP 剧本与分镜编辑
+
+工具由外部 Streamable HTTP 入口 `/api/mcp` 注册，使用当前授权账号，不接受客户端指定用户。升级后执行 Schema 109 迁移、重启后端并重新发现工具。实际工具名以 `tools/list` 返回为准；客户端可能添加 `mcp__yingce__` 等命名空间前缀。
+
+## 版本与重试
+
+`sourceRevision`、`episodeRevision`、`shotRevision` 是不透明的内容 SHA-256 字符串，客户端必须原样传回，不能加一。原文版本包含本集章节 ID、标题、正文及素材类型；全集分镜版本包含有序的稳定镜头 ID、分段与内容；单段分镜版本只包含该段镜头。网页端保存章节或镜头也会改变这些内容版本。`get_segment.segment.revision` 是现有段记录的整数版本，包含提示词、参考选择和媒体状态变化，不能与分镜内容版本混用。
+
+本文新增写操作与 `compose_episode` 要求幂等键及对应预期版本。相同账号、作品、剧集、命令与幂等键的同一请求返回原回执；换请求参数必须换键。回执与写入在同一事务提交；失败回滚后不占用键。409 冲突以 `isError=true` 返回，文本内容为 JSON，含 `code/reason/msg/details`；常见版本冲突会在 `details` 返回当前内容版本。先重读、核对，再使用新键提交。回执是原提交时的快照，后续任务状态另行查询。
+
+## 读取与保存原文
+
+`get_episode_source({dramaId, episodeId})` 返回 `sourceText`、逐章 `chapters`、`sourceFormat`、`sourceRevision`、`episodeRevision`、`readaptOnSave=false` 和 `readaptPending`。多章剧集的合并正文以空行连接，仅供读取；写入多章时必须指定本集 `chapterId`。共用原文章节的剧集拒绝更新，须先拆分章节。
+
+```json
+{
+  "dramaId": "test-drama",
+  "episodeId": "test-episode",
+  "chapterId": "chapter-1",
+  "sourceText": "角色（内心独白）：新的原文。",
+  "expectedSourceRevision": "从 get_episode_source 原样取得",
+  "readapt": false,
+  "idempotencyKey": "source-fix-1"
+}
+```
+
+以上参数调用 `update_episode_source`。省略 `readapt` 同样只保存原文，回执 `action=saved_source_only`、`shotsPreserved=true`；分镜、提示词、视频均保留。明确传 `readapt=true` 才清空原分镜并排队重新改编，回执 `saved_and_readapt_queued`，调用前应取得制作用户的指令。
+
+## 原子编辑镜头
+
+`edit_episode_shots` 接收 `expectedEpisodeRevision`、`idempotencyKey` 与 1–100 项 `edits`。使用稳定 `shotId`，不使用显示镜号；操作按数组顺序执行，最后统一检查各段时长与镜头数量。一段不可删空，插镜沿用锚点所在段、场景和角色，不重新分段。
+
+```json
+{
+  "dramaId": "test-drama",
+  "episodeId": "test-episode",
+  "expectedEpisodeRevision": "从 get_episode_source 或 get_segment 原样取得",
+  "idempotencyKey": "shot-fix-1",
+  "edits": [
+    {"operation":"insert_after","shotId":"existing-shot","newShotId":"monologue-1","speaker":"角色","dialogue":"完整独白。","dialogueMode":"inner_monologue","durationSeconds":2.5,"action":"看着对方，嘴唇保持闭合"},
+    {"operation":"update","shotId":"next-existing-shot","durationSeconds":2.0},
+    {"operation":"delete","shotId":"discarded-shot"}
+  ]
+}
+```
+
+插镜必须传 `durationSeconds`，不会先创建默认三秒空镜。`newShotId` 可省略由服务器生成；指定时可在同一批后续操作中引用，不得超过 36 字节。可修改 `speaker/dialogue/action/shotSize/imagePrompt/camera/videoPrompt/transition/durationSeconds/dialogueMode`；`imagePrompt` 是起幅，`videoPrompt` 是镜头内动作与运镜。`transition` 为 `cut/fadeblack/fadewhite`；`dialogueMode` 为 `dialogue/inner_monologue/voice_over/silent`。内心独白和画外音会向文本模型明确传递“不张嘴、不对口型”，仍需验收实际视频。
+
+回执含新 `episodeRevision`、稳定 ID 与排序后的 `shots`（含 `segmentIndex`）、各段 `segmentDurationsMs`、`insertedShotIds`。按每段实际视频模型上限验证最终结果，超限错误指明从 0 开始的段索引、总时长、上限及超出秒数，整批不落地。受影响段保留旧提示词和视频，标为 `conflict/stale`，需要重新核对。
+
+## 重写、采用与人工确认
+
+1. `get_segment` 取得 `segment.revision`、`shotRevision` 和当前视频 `videoModel/request.seconds`。
+2. 调用 `rewrite_segment_prompt`，传 `dramaId/episodeId/segmentIndex/expectedSegmentRevision/expectedShotRevision/idempotencyKey`。可选 `model` 是**文本模型**选择对象，省略使用作品提示词步骤模型。
+3. 返回 `jobId`，派发前 `taskId=null`、`taskStatus=pending_dispatch`。用 `get_drama_job({dramaId,jobId})` 查询 `job.taskId`，派发后可用 `get_task` 查询；不伪造尚不存在的任务 ID。
+4. 完成后再次 `get_segment`：`generated` 是候选正文，`candidateId/candidateShotRevision` 是候选身份及来源分镜；`promptStatus=review`，旧生效正文仍保留，不自动提交视频。
+5. `adopt_segment_prompt` 传最新段版本、分镜版本、`candidateId`、**当前视频模型** `model`、`expectedSeconds=request.seconds` 和新幂等键。只有候选仍匹配现行分镜和时长档位才可采用，状态变为 `ready`。
+
+人工改稿使用 `edit_segment_prompt`，同样要求当前段／分镜版本、当前视频 `model`、`expectedSeconds` 和幂等键，另传完整 `prompt`。保存后保留 `conflict`，回传 `promptRevision/fullPrompt/seconds/model/conflicts`。重读后调用 `confirm_segment_prompt` 显式确认当前人工正文，校验字符数、引用编号、模型和时长档位，绑定 `promptShotRevision` 并清除待核对状态。确认是制作用户的内容判断，系统不会自动证明人工时间码或对白正确。
+
+## 预检、版本和声音
+
+`preview_segment_generation` 为只读：返回实际视频模型、同提交路径计算的 `request`（时长档位、画幅、分辨率、首帧、带编号与资源 ID 的参考图／音频）、`fullPrompt`、按相同意图转换规则生成的 `intent`、`quote/unquotableReason`、`blockers/canSubmit`。历史视频存在不保证当前模型规格仍可报价。
+
+`request.generateAudio` 只表示当前模型能力合同对应的请求开关，**不表示产物没有／具有音轨或人声**。预检的 `sound` 分别返回模型音频能力、未承诺的语音质量、未实测的音轨／人声以及是否可能需要后期配音；未知使用 `null/unverified`。网页请求预演使用相同表述。
+
+`list_segment_versions` 和 `get_segment.videoVersions` 的新增流水线版本保存 `shotRevision/promptRevision/generationJson`；`generationJson` 是实际请求模型与生成参数快照，`scriptMatch` 为 `match/mismatch/unknown`。旧数据和外部采用产物没有可证明的分镜关联时返回 `unknown`，不推定匹配。分镜变化后视频保留可播放，旧版本标为 `mismatch`。
+
+`inspect_segment_version_media({dramaId,episodeId,segmentIndex,takeId?})` 实测指定或当前版本的尺寸、时长及音视频流（包括 AAC 等编解码器、声道和采样率），返回 `measurementStatus` 和 `hasAudioTrack`。服务端需 ffprobe；对象存储只读受限文件头，无法探测时明确 `unknown` 和原因，不以零时长冒充实测结果。`hasSpeech/usableDialogueAudio/soundSource` 保持未验证，音轨与语音活动均不能替代独白台词、说话人和口型验收。`preview_segment_frame` 可继续逐帧检查画面。
+
+## 紧凑合成回执与边界
+
+`compose_episode({dramaId,episodeId,expectedRevision,idempotencyKey})` 的整数 `expectedRevision` 取自 `get_episode.episode.revision`。返回 `episodeId/jobId/taskId/revision/finalResourceId/finalStale/status`，不附整集镜头；派发前任务 ID 为空，用 `get_drama_job` 继续查询。明确关联且与现行分镜不一致的视频不能合成。该操作不批准剧集或样片。
+
+`generate_segments` 同样要求顶层 `idempotencyKey`。单段在 `request.expectedPromptRevision` 传段整数版本；多段在顶层 `expectedSegmentRevisions` 传以段索引为键的版本对象，如 `{"0":12,"1":18}`。所有选中段在同一事务复核与排队；任务完成后的相同键重试仍返回原回执，不再请求生成。
+
+当前合成仍使用各段当前版本。EDL 指定 take、裁头尾、画外音复用、局部裁切和独立 review resource 尚未实现；不能把本工具当作 review cut 接口。实际语音活动／对白质量检测未在本次开放。原有启动、审批、切换当前版本工具仍沿用各自原合同，本文的幂等回执不扩展到那些写操作。
+
+目标仓库已有外部预演场景、模型检查、语义补丁和服务端白模渲染工具，本次保留这些入口；它们与正式剧本、视频生成、样片审批保持独立。具体可用参数仍以 `tools/list` 和 `list_previs_capabilities` 为准，不能把未拆分的 GLB 实例误报为逐子对象编辑结果。
