@@ -9,6 +9,10 @@ description: 当前项目已实现的核心工作台能力与使用入口
 
 角色四格默认模板保留角色外貌、画风、四格版式和声纹条，不附加全剧场景年代与空间规则。已有作品只在模板逐字等于旧默认值时更新；用户手写模板和单独填写的角色完整提示词保持原文。
 
+## 音频模型接入
+
+`minimax-speech` 插件提供 Speech 2.8、2.6、02 六个 HD／Turbo 模型；`evolink-seed-audio` 插件提供豆包 Seed Audio 1.0 与 Qwen Audio 3.1 TTS Flash。画布音频设置按协议提供音色、输出格式、语速和声音指令。Seed Audio 支持最多三段参考音频，Qwen TTS 支持输入／输出 Token 定价与上游实际用量结算。配置见 [MiniMax 语音合成](/docs/backend/minimax-speech) 与 [EvoLink 音频模型](/docs/backend/evolink-seed-audio)。
+
 ## 短剧 MCP 原子精修
 
 外部 MCP 支持读取与保存原文（默认不重新改编）、按稳定镜头 ID 一次提交增删改、最终分段时长校验、分镜变化后的提示词异步重写与显式采用、人工改稿确认。新写路径使用内容版本校验与事务内幂等回执。生成预检展示真实请求和报价原因；视频版本记录分镜／提示词关联，按需实测音视频流，声音能力与音轨、人声、对白质量分开表达。合成返回紧凑作业回执。接口与剩余边界见 [短剧 MCP 剧本与分镜编辑](/docs/backend/drama-mcp-editing)。
