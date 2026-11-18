@@ -32,7 +32,8 @@ func Open(config Config) (*gorm.DB, error) {
 			if err := os.MkdirAll(config.DataDir, 0o755); err != nil {
 				return nil, err
 			}
-			dsn = config.DataDir + "/open_ai_canvas.db?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL"
+			// Read-then-write transactions must acquire SQLite's writer lock before reading.
+			dsn = config.DataDir + "/open_ai_canvas.db?_busy_timeout=5000&_txlock=immediate&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL"
 		}
 		return gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logging.GormLogger()})
 	case "postgres", "postgresql":

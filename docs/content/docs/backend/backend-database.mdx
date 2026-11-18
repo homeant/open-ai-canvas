@@ -5,6 +5,10 @@ description: 影策后端核心持久化表与状态边界
 
 # 后端数据库
 
+## SQLite 并发写入与任务领取
+
+默认 SQLite DSN 在事务开始时使用 immediate 写锁，配合既有 5 秒 busy timeout 等待并发写事务，避免先读后写时无法升级锁。自定义 DSN 仍由部署配置控制。SQLite worker 用单条条件更新和 `RETURNING` 原子领取最早的可运行任务；PostgreSQL 继续使用行锁。上游已受理任务回查时保留原 stage 与 progress。
+
 ## 短剧 MCP 编辑事务（Schema 109）
 
 版本 109 新增 `drama_mutation_receipts`：保存作品／剧集归属、账号与命令作用域的幂等键哈希、请求哈希、原响应 JSON 和创建时间；不保存原始幂等键。回执与原文、整批镜头或提示词写入在同一事务提交，删除剧集／作品时清理回执。SQLite → PostgreSQL 迁移清单同步登记该表。
