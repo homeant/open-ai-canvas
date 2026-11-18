@@ -34,9 +34,11 @@ var (
 	customNovitaTaskResultPath = regexp.MustCompile(`(?:^|/)async/task-result$`)
 	customMiniMaxTaskPath      = regexp.MustCompile(`(?:^|/)v2/query/video_generation/[^/]+$`)
 	systemMiniMaxTaskPath      = regexp.MustCompile(`^/v2/query/video_generation/[^/]+$`)
+	customEvoLinkTaskPath      = regexp.MustCompile(`(?:^|/)v1/tasks/[^/]+$`)
+	systemEvoLinkTaskPath      = regexp.MustCompile(`^/tasks/[^/]+$`)
 	openAIPostEndpoints        = map[string]bool{
 		"/responses": true, "/chat/completions": true, "/images/generations": true, "/images/edits": true,
-		"/audio/speech": true, "/messages": true,
+		"/audio/speech": true, "/audios/generations": true, "/t2a_v2": true, "/messages": true,
 	}
 )
 
@@ -79,7 +81,7 @@ func authorizeCustomRelay(method string, target *url.URL, apiFormat string, cont
 		}
 		allowed := requestPath == "/models" || strings.HasSuffix(requestPath, "/models")
 		if apiFormat == "openai" {
-			allowed = allowed || customVideoTaskPath.MatchString(requestPath) || customXAIVideoTaskPath.MatchString(requestPath) || customVideoContentPath.MatchString(requestPath) || customArkVideoTaskPath.MatchString(requestPath) || customMiniMaxTaskPath.MatchString(requestPath)
+			allowed = allowed || customVideoTaskPath.MatchString(requestPath) || customXAIVideoTaskPath.MatchString(requestPath) || customVideoContentPath.MatchString(requestPath) || customArkVideoTaskPath.MatchString(requestPath) || customMiniMaxTaskPath.MatchString(requestPath) || customEvoLinkTaskPath.MatchString(requestPath)
 		} else if apiFormat == "gemini" {
 			allowed = allowed || customGeminiOperationPath.MatchString(requestPath)
 		}
@@ -97,7 +99,7 @@ func authorizeCustomRelay(method string, target *url.URL, apiFormat string, cont
 	}
 	if apiFormat == "openai" {
 		multipartAllowed := mediaType == "multipart/form-data" && (strings.HasSuffix(requestPath, "/images/edits") || strings.HasSuffix(requestPath, "/videos"))
-		jsonAllowed := mediaType == "application/json" && (strings.HasSuffix(requestPath, "/responses") || strings.HasSuffix(requestPath, "/chat/completions") || strings.HasSuffix(requestPath, "/images/generations") || strings.HasSuffix(requestPath, "/images/edits") || strings.HasSuffix(requestPath, "/audio/speech") || strings.HasSuffix(requestPath, "/video/generations") || strings.HasSuffix(requestPath, "/videos/generations") || strings.HasSuffix(requestPath, "/videos") || strings.HasSuffix(requestPath, "/contents/generations/tasks") || strings.HasSuffix(requestPath, "/video/create") || strings.HasSuffix(requestPath, "/v2/video_generation"))
+		jsonAllowed := mediaType == "application/json" && (strings.HasSuffix(requestPath, "/responses") || strings.HasSuffix(requestPath, "/chat/completions") || strings.HasSuffix(requestPath, "/images/generations") || strings.HasSuffix(requestPath, "/images/edits") || strings.HasSuffix(requestPath, "/audio/speech") || strings.HasSuffix(requestPath, "/audios/generations") || strings.HasSuffix(requestPath, "/t2a_v2") || strings.HasSuffix(requestPath, "/video/generations") || strings.HasSuffix(requestPath, "/videos/generations") || strings.HasSuffix(requestPath, "/videos") || strings.HasSuffix(requestPath, "/contents/generations/tasks") || strings.HasSuffix(requestPath, "/video/create") || strings.HasSuffix(requestPath, "/v2/video_generation"))
 		if len(query) != 0 || (!multipartAllowed && !jsonAllowed) {
 			return errors.New("自定义渠道不允许访问该上游接口")
 		}
@@ -212,6 +214,9 @@ func authorizeSystemProxy(channel *model.ModelChannel, protocol model.ChannelInt
 		}
 		return nil
 	}
+	if (protocol == model.ChannelInterfaceEvoLinkSeedAudio || protocol == model.ChannelInterfaceEvoLinkQwenAudioTTS) && method == http.MethodGet && systemEvoLinkTaskPath.MatchString(requestPath) {
+		return nil
+	}
 	if protocol == model.ChannelInterfaceGeminiVeo || protocol == model.ChannelInterfaceGeminiImage {
 		matches := geminiGeneratePath.FindStringSubmatch(requestPath)
 		if method != http.MethodPost || len(matches) != 3 {
@@ -250,6 +255,8 @@ func interfaceAllowsProxyPath(interfaceType model.ChannelInterfaceType, requestP
 		return requestPath == "/images/generations"
 	case model.ChannelInterfaceOpenAIAudio:
 		return requestPath == "/audio/speech"
+	case model.ChannelInterfaceEvoLinkSeedAudio, model.ChannelInterfaceEvoLinkQwenAudioTTS:
+		return requestPath == "/audios/generations"
 	case model.ChannelInterfaceAsyncAudio, model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineArkAgentPlanVideo, model.ChannelInterfaceVolcengineJiMengImage, model.ChannelInterfaceVolcengineJiMengVideo, model.ChannelInterfaceGeminiVeo, model.ChannelInterfaceGeminiImage, model.ChannelInterfaceNovitaVideo, model.ChannelInterfaceMiniMaxVideo:
 		return false
 	default:

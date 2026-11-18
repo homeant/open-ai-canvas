@@ -29,6 +29,45 @@ func TestAuthorizeSystemProxyAllowsConfiguredGenerationModel(t *testing.T) {
 	}
 }
 
+func TestAuthorizeSystemProxyMiniMaxSpeechUsesDeclaredPath(t *testing.T) {
+	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["speech-2.8-hd"]`}
+	body := []byte(`{"model":"speech-2.8-hd","text":"你好"}`)
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceMiniMaxSpeech, []string{"/t2a_v2"}, http.MethodPost, "/t2a_v2", "application/json", body); err != nil {
+		t.Fatalf("MiniMax speech request: %v", err)
+	}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceOpenAIAudio, nil, http.MethodPost, "/t2a_v2", "application/json", body); err == nil {
+		t.Fatal("OpenAI Audio must not access MiniMax speech path")
+	}
+}
+
+func TestAuthorizeSystemProxyEvoLinkSeedAudioCreateAndPoll(t *testing.T) {
+	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["doubao-seed-audio-1-0"]`}
+	body := []byte(`{"model":"doubao-seed-audio-1-0","prompt":"你好"}`)
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceEvoLinkSeedAudio, []string{"/audios/generations"}, http.MethodPost, "/audios/generations", "application/json", body); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceEvoLinkSeedAudio, nil, http.MethodGet, "/tasks/task-1", "", nil); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceOpenAIAudio, nil, http.MethodGet, "/tasks/task-1", "", nil); err == nil {
+		t.Fatal("OpenAI Audio must not access EvoLink tasks")
+	}
+}
+
+func TestAuthorizeSystemProxyEvoLinkQwenAudioTTSCreateAndPoll(t *testing.T) {
+	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["qwen-audio-3.1-tts-flash"]`}
+	body := []byte(`{"model":"qwen-audio-3.1-tts-flash","prompt":"你好","voice":"longanhuan_v3.1"}`)
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceEvoLinkQwenAudioTTS, []string{"/audios/generations"}, http.MethodPost, "/audios/generations", "application/json", body); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceEvoLinkQwenAudioTTS, nil, http.MethodGet, "/tasks/task-1", "", nil); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceEvoLinkQwenAudioTTS, nil, http.MethodGet, "/channels", "", nil); err == nil {
+		t.Fatal("EvoLink audio protocol must not access unrelated GET paths")
+	}
+}
+
 func TestAuthorizeSystemProxyAllowsGrokImageJSONEdits(t *testing.T) {
 	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["grok-imagine-image"]`}
 	body := []byte(`{"model":"grok-imagine-image","prompt":"edit"}`)
@@ -49,6 +88,9 @@ func TestAuthorizeCustomRelayAllowsModelsAndAgentEndpoints(t *testing.T) {
 		{method: http.MethodPost, target: "https://api.example.com/v1/chat/completions", apiFormat: "openai", contentType: "application/json; charset=utf-8"},
 		{method: http.MethodPost, target: "https://api.anthropic.com/v1/messages", apiFormat: "claude", contentType: "application/json"},
 		{method: http.MethodPost, target: "https://api.example.com/v1/audio/speech", apiFormat: "openai", contentType: "application/json"},
+		{method: http.MethodPost, target: "https://api.evolink.ai/v1/audios/generations", apiFormat: "openai", contentType: "application/json"},
+		{method: http.MethodGet, target: "https://api.evolink.ai/v1/tasks/task-1", apiFormat: "openai"},
+		{method: http.MethodPost, target: "https://api.minimax.cn/v1/t2a_v2", apiFormat: "openai", contentType: "application/json"},
 		{method: http.MethodPost, target: "https://api.example.com/v1/images/edits", apiFormat: "openai", contentType: "multipart/form-data; boundary=test"},
 		{method: http.MethodPost, target: "https://api.example.com/v1/images/edits", apiFormat: "openai", contentType: "application/json"},
 		{method: http.MethodPost, target: "https://api.example.com/v1/videos", apiFormat: "openai", contentType: "application/json"},

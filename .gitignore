@@ -22,6 +22,8 @@ docs/content/docs/backend/*
 !docs/content/docs/backend/task-runtime-stability.mdx
 !docs/content/docs/backend/agent-prompt-policy.mdx
 !docs/content/docs/backend/agent-mcp.mdx
+!docs/content/docs/backend/minimax-speech.mdx
+!docs/content/docs/backend/evolink-seed-audio.mdx
 !docs/content/docs/backend/drama-mcp-editing.mdx
 !docs/content/docs/backend/canvas-agent-appearance.mdx
 !docs/content/docs/backend/update-announcements.mdx
