@@ -797,7 +797,7 @@ func cloudAgentPrevisSceneCreateTemplate(args cloudAgentPrevisSceneCreateArgs) (
 	scene := map[string]any{
 		"id": args.SceneID, "version": 1, "title": args.Title, "background": "#d8dde3", "environmentIntensity": 0.7, "gridVisible": true,
 		"objects": objects, "cameras": []any{camera}, "lights": lights,
-		"shots":        []any{map[string]any{"id": shotID, "name": "镜头 1", "cameraId": cameraID, "duration": 5, "fps": 24, "shotSize": "medium", "cameraMove": "static", "prompt": "", "cuts": []any{}}},
+		"shots":        []any{map[string]any{"id": shotID, "name": "镜头 1", "cameraId": cameraID, "duration": 5, "fps": 24, "aspectRatio": "9:16", "shotSize": "medium", "cameraMove": "static", "prompt": "", "cuts": []any{}}},
 		"activeShotId": shotID, "createdAt": now, "updatedAt": now,
 	}
 	if args.EpisodeID != "" {
@@ -1818,6 +1818,9 @@ func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAg
 		shot["renderKind"] = *operation.RenderKind
 		return cloudAgentApprovalPreviewItem{Operation: operation.Type, NodeID: operation.ID, NodeTitle: stringValue(shot["name"]), Summary: "绑定镜头预览资源"}, nil
 	case "shot_object_set", "shot_object_clear":
+		if err := previsValidateShotStateFields(operation); err != nil {
+			return cloudAgentApprovalPreviewItem{}, err
+		}
 		shot := cloudAgentPrevisFindByID(shots, operation.ID)
 		if shot == nil || operation.ObjectID == nil {
 			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("镜头对象操作需要现有 shotId 和 objectId")
@@ -1837,12 +1840,22 @@ func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAg
 			}
 		}
 		if operation.Type == "shot_object_set" {
+			if operation.Visible == nil && operation.Position == nil && operation.Rotation == nil && operation.Scale == nil {
+				return cloudAgentApprovalPreviewItem{}, BadAuthRequest("shot_object_set 需要 visible 或 transform")
+			}
 			state := map[string]any{"objectId": *operation.ObjectID}
+			for _, previous := range states {
+				if stringValue(previous["objectId"]) == *operation.ObjectID {
+					for key, value := range previous {
+						state[key] = value
+					}
+				}
+			}
 			if operation.Visible != nil {
 				state["visible"] = *operation.Visible
 			}
 			if operation.Position != nil || operation.Rotation != nil || operation.Scale != nil {
-				transform, _ := base["transform"].(map[string]any)
+				transform, _ := previsShotObject(base, shot)["transform"].(map[string]any)
 				copyTransform := map[string]any{"position": transform["position"], "rotation": transform["rotation"], "scale": transform["scale"]}
 				for _, part := range []struct {
 					name  string
@@ -1856,6 +1869,8 @@ func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAg
 					}
 				}
 				state["transform"] = copyTransform
+				state["keyframes"] = []any{}
+				state["motionPath"] = nil
 			}
 			if len(state) == 1 {
 				return cloudAgentApprovalPreviewItem{}, BadAuthRequest("shot_object_set 需要 visible 或 transform")
@@ -1913,7 +1928,7 @@ func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAg
 		if err := cloudAgentPrevisValidateEnum(cameraMove, "镜头运镜", "static", "push_in", "pull_out", "pan_left", "pan_right", "tilt_up", "tilt_down", "orbit_left", "orbit_right", "handheld"); err != nil {
 			return cloudAgentApprovalPreviewItem{}, err
 		}
-		shot := map[string]any{"id": operation.ID, "name": name, "cameraId": cameraID, "duration": duration, "fps": fps, "shotSize": shotSize, "cameraMove": cameraMove, "prompt": "", "cuts": []any{}}
+		shot := map[string]any{"id": operation.ID, "name": name, "cameraId": cameraID, "duration": duration, "fps": fps, "aspectRatio": "9:16", "shotSize": shotSize, "cameraMove": cameraMove, "prompt": "", "cuts": []any{}}
 		if operation.DramaShotID != nil {
 			shot["dramaShotId"] = *operation.DramaShotID
 		}

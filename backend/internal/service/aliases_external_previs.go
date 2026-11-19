@@ -2,6 +2,8 @@ package service
 
 import "yingce/backend/internal/app"
 
+type ExternalPrevisSampleRequest = app.ExternalPrevisSampleRequest
+
 type ExternalPrevisScope = app.ExternalPrevisScope
 type ExternalPrevisReadRequest = app.ExternalPrevisReadRequest
 type ExternalPrevisCreateRequest = app.ExternalPrevisCreateRequest

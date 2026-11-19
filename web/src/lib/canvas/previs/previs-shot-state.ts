@@ -2,6 +2,10 @@ import type { PrevisObject, PrevisScene, PrevisShot, PrevisShotObjectState } fro
 
 const scopedFields = ["visible", "transform", "pose", "keyframes", "boneOverrides", "boneTracks", "motions", "motionPath", "motionClips", "activeMotionClipId"] as const;
 
+export function resolvePrevisKeyframePose(object: Pick<PrevisObject, "pose" | "keyframes">, time: number) {
+    return object.keyframes.filter((frame) => frame.pose && frame.time <= time).toSorted((a, b) => b.time - a.time)[0]?.pose || object.pose;
+}
+
 export function resolvePrevisShotObject(object: PrevisObject, shot?: PrevisShot | null, time?: number): PrevisObject {
     const state = shot?.objectStates?.find((item) => item.objectId === object.id);
     const result = { ...object };
@@ -16,7 +20,7 @@ export function resolvePrevisShotObject(object: PrevisObject, shot?: PrevisShot 
         }
     }
     if (time !== undefined) {
-        const pose = result.keyframes.filter((frame) => frame.pose && frame.time <= time).toSorted((a, b) => b.time - a.time)[0]?.pose;
+        const pose = resolvePrevisKeyframePose(result, time);
         if (pose) result.pose = pose;
     }
     return result;

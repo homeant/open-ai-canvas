@@ -94,7 +94,7 @@ async function render() {
         const expression = `window.yingcePrevisRender(${JSON.stringify(input)})`;
         const result = await cdp.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
         if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || result.result?.description || "浏览器渲染失败");
-        if (!result.result?.value?.dataBase64) throw new Error("浏览器未返回预演产物");
+        if (input.kind === "frames" ? !Array.isArray(result.result?.value?.frames) : !result.result?.value?.dataBase64) throw new Error("浏览器未返回预演产物");
         process.stdout.write(JSON.stringify(result.result.value));
     } finally {
         cdp?.close();

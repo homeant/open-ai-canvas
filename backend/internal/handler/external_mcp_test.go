@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -90,6 +92,25 @@ func TestExternalPrevisOperationMCPInputSchema(t *testing.T) {
 	}
 	if len(schema.Required) != 2 || schema.Required[0] != "type" || schema.Required[1] != "id" {
 		t.Fatalf("unexpected required fields: %#v", schema.Required)
+	}
+}
+
+func TestExternalMCPRateLimitIncludesRetryTime(t *testing.T) {
+	svc := externalAccessTestService(t)
+	if err := externalMCPAllow(context.Background(), svc, "previs-render-test", 1); err != nil {
+		t.Fatal(err)
+	}
+	err := externalMCPAllow(context.Background(), svc, "previs-render-test", 1)
+	var limited *service.AppError
+	if !errors.As(err, &limited) || !limited.Retryable {
+		t.Fatalf("missing retryable error: %v", err)
+	}
+	ms := limited.Details["retryAfterMs"].(time.Duration)
+	if ms <= 0 || ms > 60000 {
+		t.Fatalf("invalid retry delay: %v", limited.Details)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, limited.Details["retryAt"].(string)); err != nil {
+		t.Fatal(err)
 	}
 }
 

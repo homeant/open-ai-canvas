@@ -1,4 +1,5 @@
 import { Euler, Quaternion } from "three";
+import { resolvePrevisKeyframePose } from "./previs-shot-state";
 
 import { interpolatePrevisBoneRotation, interpolatePrevisTransform, resolvePrevisKeyframeProgress } from "@/lib/canvas/previs/previs-scene";
 import type { PrevisActorMotion, PrevisHumanoidBone, PrevisKeyframe, PrevisMotionId, PrevisObject, PrevisPose, PrevisQuat } from "@/types/previs";
@@ -380,7 +381,7 @@ function eulerToQuat(value: PrevisEuler, scale = 1): Quaternion {
  * 截图、录制、第二屏与视口共用这一个函数，保证所见即所得。
  */
 export function evaluatePrevisActorPose(object: Pick<PrevisObject, "pose" | "keyframes" | "motions" | "boneOverrides" | "boneTracks">, time: number): PrevisEvaluatedPose {
-    const base = PREVIS_MANNEQUIN_POSES[object.pose || "stand"] ?? PREVIS_MANNEQUIN_POSES.stand;
+    const base = PREVIS_MANNEQUIN_POSES[resolvePrevisKeyframePose(object, time) || "stand"] ?? PREVIS_MANNEQUIN_POSES.stand;
     const current = new Map<PrevisMannequinBone, Quaternion>();
     for (const bone of PREVIS_MANNEQUIN_BONES) current.set(bone, base[bone] ? eulerToQuat(base[bone]!) : new Quaternion());
 

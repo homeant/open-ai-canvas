@@ -59,6 +59,7 @@ import {
 import { disposePrevisAdoptionFailure, disposePrevisHelper, disposePrevisModelResources, disposePrevisObject3D, resolvePrevisLoadOwnership } from "@/lib/canvas/previs/previs-resources";
 import { resolvePrevisActorColor, previsTransformPathLength, finitePrevisTransformKeyframes, interpolatePrevisTransform } from "@/lib/canvas/previs/previs-scene";
 import { resolvePrevisShotObject } from "@/lib/canvas/previs/previs-shot-state";
+import { inspectPrevisFrame } from "@/lib/canvas/previs/previs-frame-diagnostics";
 import {
     PREVIS_DEFAULT_VIEW_MODE,
     previsViewFramingKey,
@@ -85,6 +86,7 @@ import { evaluatePrevisActorPose, PREVIS_MANNEQUIN_BONES } from "@/lib/canvas/pr
 export type PrevisOrbitControls = ComponentRef<typeof OrbitControls>;
 
 export type PrevisViewportHandle = {
+    inspectFrame?: () => ReturnType<typeof inspectPrevisFrame>;
     /** 始终从当前镜头摄影机、按镜头画幅渲染，与编辑视口的观察相机无关。 */
     capture: (mode: PrevisRenderMode, options?: PrevisCaptureOptions) => Promise<Blob>;
     recordVideo: (duration: number, fps: number, mode?: PrevisRenderMode, options?: PrevisCaptureOptions) => Promise<Blob>;
@@ -248,6 +250,11 @@ export const PrevisViewport = forwardRef<PrevisViewportHandle, PrevisViewportPro
             capture: (mode, options) => captureFrame(usableContext, mode, options),
             recordVideo: (duration, fps, mode, options) => recordCanvas(usableContext, duration, fps, mode, options),
             createShotSurface: (options) => createPrevisShotSurface(usableContext, options),
+            inspectFrame: () => {
+                const context = usableContext();
+                if (!context) throw new Error("预演视口尚未就绪，不能检查碰撞风险");
+                return inspectPrevisFrame(context.scene, sceneRef.current);
+            },
             readCameraTransform: () => {
                 const camera = usableContext()?.camera;
                 return camera ? { position: camera.position.toArray() as PrevisTransform["position"], rotation: [camera.rotation.x, camera.rotation.y, camera.rotation.z], scale: [1, 1, 1] } : null;
@@ -519,7 +526,7 @@ function PrevisSceneContent({
     const containerAspect = size.width / Math.max(size.height, 1);
     const rawCamFraming = resolvePrevisViewFraming({ scene, mode: viewMode, playhead, cameraId: selectedCameraId, viewportAspect: containerAspect });
     const shotAspect = previsAspectValue(resolvePrevisActiveShot(scene)?.aspectRatio, containerAspect);
-    const shotObjects = useMemo(() => scene.objects.map((object) => resolvePrevisShotObject(object, resolvePrevisActiveShot(scene), playhead)), [scene, playhead]);
+    const shotObjects = useMemo(() => scene.objects.map((object) => resolvePrevisShotObject(object, resolvePrevisActiveShot(scene))), [scene]);
     const camFraming = rawCamFraming ? { ...rawCamFraming, fov: resolvePrevisContainerFov(rawCamFraming.fov, shotAspect, containerAspect) } : null;
     const orthoFraming = resolvePrevisOrthographicFraming({ scene, mode: viewMode });
     const effectiveViewport = resolvePrevisEffectiveViewport({ mode: viewMode, framing: camFraming });
@@ -1266,6 +1273,7 @@ function PrevisObjectView({
         <>
             <group
                 ref={setTarget}
+                userData={{ previsObjectId: object.id }}
                 position={transform.position}
                 rotation={transform.rotation}
                 scale={transform.scale}
@@ -1884,7 +1892,7 @@ function PrevisModel({
         applyPrevisBoneTracks(model, object, playhead, rig, restRotations, Boolean(activeAnimation && motion));
         helper?.updateMatrixWorld(true);
         invalidate();
-    }, [activeAnimation, helper, invalidate, model, motion, object.boneOverrides, object.boneTracks, object.pose, playhead, restRotations, rig]);
+    }, [activeAnimation, helper, invalidate, model, motion, object.boneOverrides, object.boneTracks, object.pose, object.keyframes, playhead, restRotations, rig]);
 
     useEffect(() => {
         if (!model) return;

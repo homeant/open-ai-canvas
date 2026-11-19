@@ -308,18 +308,19 @@ func projectPrevisScene(scene map[string]any, shotID string, objectIDs map[strin
 			continue
 		}
 		shots = append(shots, map[string]any{
-			"id":               stringValue(shot["id"]),
-			"name":             truncateRunes(stringValue(shot["name"]), 160),
-			"cameraId":         stringValue(shot["cameraId"]),
-			"duration":         numberValue(shot["duration"], 5),
-			"fps":              int(numberValue(shot["fps"], 24)),
-			"shotSize":         stringValue(shot["shotSize"]),
-			"cameraMove":       stringValue(shot["cameraMove"]),
-			"dramaShotId":      stringValue(shot["dramaShotId"]),
-			"aspectRatio":      stringValue(shot["aspectRatio"]),
-			"objectStates":     creationMaps(shot["objectStates"]),
-			"renderResourceId": stringValue(shot["renderResourceId"]),
-			"renderKind":       stringValue(shot["renderKind"]),
+			"id":                   stringValue(shot["id"]),
+			"name":                 truncateRunes(stringValue(shot["name"]), 160),
+			"cameraId":             stringValue(shot["cameraId"]),
+			"duration":             numberValue(shot["duration"], 5),
+			"fps":                  int(numberValue(shot["fps"], 24)),
+			"shotSize":             stringValue(shot["shotSize"]),
+			"cameraMove":           stringValue(shot["cameraMove"]),
+			"dramaShotId":          stringValue(shot["dramaShotId"]),
+			"aspectRatio":          previsEffectiveAspectRatio(shot),
+			"aspectRatioDefaulted": stringValue(shot["aspectRatio"]) == "",
+			"objectStates":         creationMaps(shot["objectStates"]),
+			"renderResourceId":     stringValue(shot["renderResourceId"]),
+			"renderKind":           stringValue(shot["renderKind"]),
 		})
 	}
 	objects := make([]map[string]any, 0)
