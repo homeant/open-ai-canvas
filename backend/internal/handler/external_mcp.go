@@ -22,7 +22,7 @@ func externalMCPTool[In any](server *mcp.Server, name, description string, fn fu
 		value, err := fn(ctx, input)
 		var appErr *service.AppError
 		if errors.As(err, &appErr) {
-			body := map[string]any{"code": appErr.Code, "reason": appErr.Reason, "msg": appErr.Message, "details": appErr.Details}
+			body := map[string]any{"code": appErr.Code, "reason": appErr.Reason, "msg": appErr.Message, "details": appErr.Details, "retryable": appErr.Retryable}
 			data, _ := json.Marshal(body)
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}, nil, nil
 		}
@@ -39,7 +39,13 @@ func externalMCPAllow(ctx context.Context, svc *service.Service, subject string,
 		return err
 	}
 	if !allowed {
-		return service.RateLimited("请求过于频繁，请稍后重试")
+		retry := svc.RequestRetryAfter(ctx, subject, time.Minute)
+		if retry < time.Millisecond {
+			retry = time.Millisecond
+		}
+		err := service.RateLimited("请求过于频繁，请按 retryAfterMs 等待后重试")
+		err.Details = map[string]any{"retryAfterMs": (retry + time.Millisecond - 1) / time.Millisecond, "retryAfterSeconds": (retry + time.Second - 1) / time.Second, "retryAt": time.Now().Add(retry).UTC().Format(time.RFC3339Nano)}
+		return err
 	}
 	return nil
 }
@@ -247,6 +253,25 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	})
 	externalMCPTool(server, "preview_previs_shot", "只读检查白模预演参数；实际生成请调用 render_previs_frame 或 render_previs_video", func(_ context.Context, input service.ExternalPrevisPreviewRequest) (any, error) {
 		return svc.ExternalPrevisPreviewPlan(userID, input)
+	})
+	externalMCPTool(server, "sample_previs_frames", "只读取样同一镜头的 1–8 个时间点，返回真实 PNG 与逐帧包围盒重叠风险；不保存预览、不修改场景，不是 IK 或精确碰撞验收", func(ctx context.Context, input service.ExternalPrevisSampleRequest) (any, error) {
+		if err := externalMCPAllow(ctx, svc, "previs-render:"+userID, 4); err != nil {
+			return nil, err
+		}
+		samples, err := svc.SampleExternalPrevisFrames(ctx, userID, input)
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := json.Marshal(samples)
+		if err != nil {
+			return nil, err
+		}
+		content := []mcp.Content{&mcp.TextContent{Text: string(metadata)}}
+		for _, frame := range samples.Frames {
+			label, _ := json.Marshal(map[string]any{"time": frame.Time, "diagnostics": frame.Diagnostics})
+			content = append(content, &mcp.TextContent{Text: string(label)}, &mcp.ImageContent{MIMEType: frame.MimeType, Data: frame.PNG})
+		}
+		return &mcp.CallToolResult{Content: content}, nil
 	})
 	externalMCPTool(server, "render_previs_frame", "在服务端用真实预演视口渲染镜头白模 PNG，保存并绑定资源；需要场景快照和幂等键", func(ctx context.Context, input service.ExternalPrevisRenderRequest) (any, error) {
 		if err := externalMCPAllow(ctx, svc, "previs-render:"+userID, 4); err != nil {

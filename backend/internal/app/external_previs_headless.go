@@ -110,76 +110,9 @@ func (s *Service) RenderExternalPrevis(ctx context.Context, userID string, req E
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	doc, err := creationDocument(canvas.PayloadJSON)
+	scene, _, err := s.externalPrevisRenderScene(userID, canvas, req)
 	if err != nil {
 		return nil, err
-	}
-	scene, ok := findPrevisScene(creationMaps(doc["previsScenes"]), req.SceneID)
-	if !ok || (req.EpisodeID != "" && stringValue(scene["episodeId"]) != "" && stringValue(scene["episodeId"]) != req.EpisodeID) {
-		return nil, BadAuthRequest("预演场景不存在或属于其他剧集")
-	}
-	if req.SnapshotHash == "" || creationHash(scene) != req.SnapshotHash {
-		return nil, creationConflict("预演场景已变化，请重新读取 snapshotHash")
-	}
-	shot, ok := findPrevisShot(scene, req.ShotID)
-	if !ok {
-		return nil, BadAuthRequest("预演镜头不存在")
-	}
-	if req.Kind == "video" && req.Duration == nil && numberValue(shot["duration"], 0) > 10 {
-		return nil, BadAuthRequest("视频时长不能超过 10 秒")
-	}
-	if req.Kind == "video" && req.FPS == nil && numberValue(shot["fps"], 24) > 30 {
-		return nil, BadAuthRequest("视频帧率不能超过 30")
-	}
-	if req.Time != nil && *req.Time > numberValue(shot["duration"], 5) {
-		return nil, BadAuthRequest("单帧时间不能超过镜头时长")
-	}
-	if err := cloudAgentPrevisValidateScene(scene); err != nil {
-		return nil, err
-	}
-	resourceURLs := map[string]string{}
-	var total int64
-	shotVisibility := map[string]bool{}
-	for _, state := range creationMaps(shot["objectStates"]) {
-		if visible, ok := state["visible"].(bool); ok {
-			shotVisibility[stringValue(state["objectId"])] = visible
-		}
-	}
-	for _, object := range creationMaps(scene["objects"]) {
-		visible := boolValue(object["visible"], true)
-		if override, found := shotVisibility[stringValue(object["id"])]; found {
-			visible = override
-		}
-		if !visible {
-			continue
-		}
-		if stringValue(object["url"]) == "" && stringValue(object["storageKey"]) == "" {
-			continue
-		}
-		resourceID := stringValue(object["resourceId"])
-		if resourceID == "" {
-			resourceID = strings.TrimPrefix(stringValue(object["storageKey"]), "resource:")
-		}
-		if resourceID == "" || resourceID == stringValue(object["storageKey"]) {
-			return nil, BadAuthRequest("预演模型必须使用当前用户的资源 ID")
-		}
-		if resourceURLs[resourceID] == "" {
-			resource, err := s.Resource(userID, resourceID)
-			if err != nil {
-				return nil, err
-			}
-			total += resource.Size
-			if total > 32<<20 {
-				return nil, BadAuthRequest("预演场景模型总量超过 32 MiB")
-			}
-			url, err := s.externalPrevisInlineResource(userID, resourceID, 8<<20)
-			if err != nil {
-				return nil, err
-			}
-			resourceURLs[resourceID] = url
-		}
-		object["url"] = resourceURLs[resourceID]
-		delete(object, "storageKey")
 	}
 	scene["activeShotId"] = req.ShotID
 	longEdge := 960
@@ -313,4 +246,79 @@ func externalPrevisRunBrowser(ctx context.Context, input []byte) ([]byte, error)
 		return nil, BadAuthRequest("服务端预演渲染失败：" + truncateRunes(strings.TrimSpace(stderr.String()), 240))
 	}
 	return output.Bytes(), nil
+}
+
+func (s *Service) externalPrevisRenderScene(userID string, canvas *model.CanvasProject, req ExternalPrevisRenderRequest) (map[string]any, map[string]any, error) {
+	doc, err := creationDocument(canvas.PayloadJSON)
+	if err != nil {
+		return nil, nil, err
+	}
+	scene, ok := findPrevisScene(creationMaps(doc["previsScenes"]), req.SceneID)
+	if !ok || (req.EpisodeID != "" && stringValue(scene["episodeId"]) != "" && stringValue(scene["episodeId"]) != req.EpisodeID) {
+		return nil, nil, BadAuthRequest("预演场景不存在或属于其他剧集")
+	}
+	if req.SnapshotHash == "" || creationHash(scene) != req.SnapshotHash {
+		return nil, nil, creationConflict("预演场景已变化，请重新读取 snapshotHash")
+	}
+	shot, ok := findPrevisShot(scene, req.ShotID)
+	if !ok {
+		return nil, nil, BadAuthRequest("预演镜头不存在")
+	}
+	if req.Kind == "video" && req.Duration == nil && numberValue(shot["duration"], 0) > 10 {
+		return nil, nil, BadAuthRequest("视频时长不能超过 10 秒")
+	}
+	if req.Kind == "video" && req.FPS == nil && numberValue(shot["fps"], 24) > 30 {
+		return nil, nil, BadAuthRequest("视频帧率不能超过 30")
+	}
+	if req.Time != nil && *req.Time > numberValue(shot["duration"], 5) {
+		return nil, nil, BadAuthRequest("单帧时间不能超过镜头时长")
+	}
+	if err := cloudAgentPrevisValidateScene(scene); err != nil {
+		return nil, nil, err
+	}
+	resourceURLs := map[string]string{}
+	var total int64
+	shotVisibility := map[string]bool{}
+	for _, state := range creationMaps(shot["objectStates"]) {
+		if visible, ok := state["visible"].(bool); ok {
+			shotVisibility[stringValue(state["objectId"])] = visible
+		}
+	}
+	for _, object := range creationMaps(scene["objects"]) {
+		visible := boolValue(object["visible"], true)
+		if override, found := shotVisibility[stringValue(object["id"])]; found {
+			visible = override
+		}
+		if !visible {
+			continue
+		}
+		if stringValue(object["url"]) == "" && stringValue(object["storageKey"]) == "" {
+			continue
+		}
+		resourceID := stringValue(object["resourceId"])
+		if resourceID == "" {
+			resourceID = strings.TrimPrefix(stringValue(object["storageKey"]), "resource:")
+		}
+		if resourceID == "" || resourceID == stringValue(object["storageKey"]) {
+			return nil, nil, BadAuthRequest("预演模型必须使用当前用户的资源 ID")
+		}
+		if resourceURLs[resourceID] == "" {
+			resource, err := s.Resource(userID, resourceID)
+			if err != nil {
+				return nil, nil, err
+			}
+			total += resource.Size
+			if total > 32<<20 {
+				return nil, nil, BadAuthRequest("预演场景模型总量超过 32 MiB")
+			}
+			url, err := s.externalPrevisInlineResource(userID, resourceID, 8<<20)
+			if err != nil {
+				return nil, nil, err
+			}
+			resourceURLs[resourceID] = url
+		}
+		object["url"] = resourceURLs[resourceID]
+		delete(object, "storageKey")
+	}
+	return scene, shot, nil
 }

@@ -5,6 +5,11 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## 预演台逐帧取样与动作诊断
+
+- 外部 MCP 入口：`handler/external_mcp.go`；只读取样：`app/external_previs_samples.go`；资源校验与真实浏览器边界：`app/external_previs_headless.go`。画幅默认值、补丁字段拒绝与根旋转风险在 `app/previs_validation.go`。
+- 实际画面入口：`web/src/previs-render.tsx`；包围盒诊断：`web/src/lib/canvas/previs/previs-frame-diagnostics.ts`；姿态按时刻求值在 `previs-motion.ts` 与 `components/canvas/previs/previs-viewport-rig.ts`。这些诊断不是 IK 或精确接触求解。
+
 ## 短剧 MCP 原子精修
 
 - 外部工具：`handler/external_mcp_drama_editing.go`；业务编排：`app/drama_mcp_editing.go`、`drama_mcp_prompts.go`、`drama_mcp_preflight.go`、`drama_mcp_compose.go`。事务与回执：`repository/drama_mutation.go`、`model/models_drama_mutation.go`，迁移 Schema 109。

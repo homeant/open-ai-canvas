@@ -5,6 +5,7 @@ import { disposePrevisMaterials } from "@/lib/canvas/previs/previs-resources";
 import { type PrevisHumanoidBone, type PrevisObject, type PrevisQuat, type PrevisRig } from "@/types/previs";
 import { previsPoseBoneDeltas } from "@/lib/canvas/previs/previs-scene";
 import { resolvePrevisBoneRotation } from "@/lib/canvas/previs/previs-animation-semantics";
+import { resolvePrevisKeyframePose } from "@/lib/canvas/previs/previs-shot-state";
 
 export function screenPixelsToWorldRadius(camera: Camera, distance: number, pixels: number, viewportHeight: number) {
     const height = Math.max(1, viewportHeight);
@@ -212,7 +213,7 @@ export function normalizeBoneName(name: string) {
 
 export function applyPrevisBoneTracks(model: Object3D, object: PrevisObject, playhead: number, rig: PrevisRig | null, restRotations: Partial<Record<PrevisHumanoidBone, PrevisQuat>>, hasActiveMotion: boolean) {
     if (!rig) return;
-    const poseDeltas = hasActiveMotion ? {} : previsPoseBoneDeltas(object.pose || "stand");
+    const poseDeltas = hasActiveMotion ? {} : previsPoseBoneDeltas(resolvePrevisKeyframePose(object, playhead) || "stand");
     Object.entries(rig.boneMap).forEach(([bone, name]) => {
         const target = name ? model.getObjectByName(name) : null;
         if (!target) return;

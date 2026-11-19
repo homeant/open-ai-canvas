@@ -7,6 +7,22 @@ description: 个人和平台 MCP 的安装、参数配置、工具授权、市�
 
 ## 外部创作客户端的预演台工具
 
+### 逐帧取样、画幅和校验范围
+
+`sample_previs_frames` 接受 `{canvasId,sceneId,shotId,snapshotHash,times,longEdge?}`。`times` 是 1–8 个递增、位于镜头时长内的秒数；可按 `1 / fps` 的间隔选择连续帧。`longEdge` 为 320–960，默认 640。一次请求只启动一次浏览器，返回按时间排序的 PNG 图像和逐帧诊断，**不上传资源、不关联镜头预览、不改变修订或快照**，不需要写入幂等键；取样期间场景变化则拒绝过期结果。
+
+```json
+{"canvasId":"canvas-id","sceneId":"scene-id","shotId":"shot-id","snapshotHash":"read-current-hash","times":[0,0.5,1,1.5,2],"longEdge":640}
+```
+
+诊断使用实际渲染对象的世界坐标包围盒，标注 `possible_object_overlap`、`below_ground_bounds` 或 `bounds_unavailable`。这是粗筛风险：床面接触可能产生包围盒重叠，不能据此直接确认穿模。结果明确返回 `collisionConfirmed:false`、`ikConstraintsSupported:false` 与 `contactConstraints:"not_solved"`。`validate_previs_scene.valid` 仅表示结构和资源关联有效，另附 `motionValidated:false`、`validationScope:"structure_and_references"`，根节点翻转过渡会提示 `root_rotation_not_ik` 并建议取样时间；它不证明真实起身、手撑床面或双脚落地成立。截图、取样和录像均按目标时间求值姿态预设。
+
+未设置 `shot.aspectRatio` 时，UI、MCP 读取和竖屏校验统一使用有效值 `9:16`；读取附 `aspectRatioDefaulted:true`，不回写已有草案。新建镜头明确保存 `9:16`。显式横屏、自适应或无效值不冒充竖屏。
+
+`shot_object_set` 仅接受对象显隐、位置、旋转和尺寸；传 `pose` 等不适用字段会返回 `details.unsupportedFields` 并拒绝整批修改。姿态请使用 `shotId + object_update`，动画用 `shotId + object_keyframe_upsert`。仅切换显隐保留已有轨道；设置静态 transform 会替换该镜头的 transform 轨道并清除走位路径，不清除骨骼轨道。
+
+预演渲染和批量取样共享每用户的准入窗口。`42901` 错误返回 `retryable:true`，以及 `details.retryAfterMs`、`retryAfterSeconds`、`retryAt`；应等待对应时间后再请求，不能连续立即重试。一次批量取样只占一次准入。
+
 影策对外的 `/api/mcp` 提供 `list_previs_scenes`、`get_previs_scene`、`apply_previs_patch`、`render_previs_frame`、`render_previs_video` 等预演工具。它们不提交正式视频生成。可直接按 `canvasId` 定位当前用户的画布；读取时可用 `nodeId` 解析场景，或指定 `sceneId`。如果同时提供作品和剧集上下文，仍须校验画布归属和剧集绑定。
 
 1. 先调用 `list_previs_scenes({canvasId})`，取得场景、节点和镜头 ID。

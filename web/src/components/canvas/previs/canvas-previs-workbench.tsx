@@ -1,6 +1,6 @@
 import { cameraMoveOptions, poseEditBones, BoneRotationFields, shotSizeOptions, ObjectInspector, LightInspector, ShotInspector } from "./previs-inspectors";
 import { snapPrevisTime, advancePrevisPlayhead, resolvePrevisKeyframeRecord, resolvePrevisObjectTransformEdit, resolvePrevisCameraMoveKeyframes, resolvePrevisCameraAlignment } from "@/lib/canvas/previs/previs-animation-semantics";
-import { applyPrevisShotEdit, resolvePrevisShotScene } from "@/lib/canvas/previs/previs-shot-state";
+import { applyPrevisShotEdit, resolvePrevisShotScene, resolvePrevisKeyframePose } from "@/lib/canvas/previs/previs-shot-state";
 import {
     interpolatePrevisTransform,
     touchPrevisScene,
@@ -238,7 +238,7 @@ export function CanvasPrevisWorkbench({
     const modelAssets = useMemo(() => assets.filter((asset): asset is ModelAsset => asset.kind === "model"), [assets]);
 
     const capabilities = previsModeCapabilities(mode);
-    const draft = useMemo(() => (storedDraft ? resolvePrevisShotScene(storedDraft, playhead) : null), [storedDraft, playhead]);
+    const draft = useMemo(() => (storedDraft ? resolvePrevisShotScene(storedDraft) : null), [storedDraft]);
     const renderModeOptions = PREVIS_RENDER_MODE_LABELS.filter((option) => capabilities.renderModes.includes(option.value));
 
     const draftRef = useRef<PrevisScene | null>(null);
@@ -348,7 +348,8 @@ export function CanvasPrevisWorkbench({
         if (activeShot?.id) setSelectedCameraId(activeShot.cameraId || null);
     }, [activeShot?.id]);
     const compiledPrompt = useMemo(() => (draft && activeShot ? compilePrevisPrompt(draft, activeShot) : ""), [activeShot, draft]);
-    const selectedObject = draft?.objects?.find((item) => item.id === selectedObjectId) || null;
+    const selectedBase = draft?.objects?.find((item) => item.id === selectedObjectId) || null;
+    const selectedObject = selectedBase ? { ...selectedBase, pose: resolvePrevisKeyframePose(selectedBase, playhead) } : null;
     const selectedLight = draft?.lights?.find((item) => item.id === selectedLightId) || null;
     const selectedCamera = draft?.cameras?.find((item) => item.id === selectedCameraId) || null;
     const inspectorCamera = selectedCamera || activeCamera;

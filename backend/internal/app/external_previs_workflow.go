@@ -79,7 +79,7 @@ func (s *Service) ValidateExternalPrevisScene(userID string, req ExternalPrevisR
 		return nil, err
 	}
 	scene, ok := findPrevisScene(creationMaps(doc["previsScenes"]), req.SceneID)
-	if !ok || (stringValue(scene["episodeId"]) != "" && stringValue(scene["episodeId"]) != req.EpisodeID) {
+	if !ok || (req.EpisodeID != "" && stringValue(scene["episodeId"]) != "" && stringValue(scene["episodeId"]) != req.EpisodeID) {
 		return nil, BadAuthRequest("预演场景不存在或属于其他剧集")
 	}
 	issues := make([]map[string]any, 0)
@@ -93,19 +93,19 @@ func (s *Service) ValidateExternalPrevisScene(userID string, req ExternalPrevisR
 				issues = append(issues, map[string]any{"code": "duplicate_drama_shot", "shotId": stringValue(shot["id"])})
 			}
 			shotIDs[id] = true
-			linked, lookupErr := s.repo.DramaShot(req.DramaID, id)
-			if lookupErr != nil || linked.EpisodeID != req.EpisodeID {
+			linked, lookupErr := s.repo.DramaShot(canvas.ProjectID, id)
+			if lookupErr != nil || (req.EpisodeID != "" && linked.EpisodeID != req.EpisodeID) {
 				issues = append(issues, map[string]any{"code": "invalid_drama_shot", "shotId": stringValue(shot["id"])})
 			}
 		}
-		if stringValue(shot["aspectRatio"]) != "9:16" {
+		if previsEffectiveAspectRatio(shot) != "9:16" {
 			issues = append(issues, map[string]any{"code": "aspect_ratio_not_vertical", "shotId": stringValue(shot["id"])})
 		}
 	}
 	modelChecks := map[string]bool{}
 	for _, object := range creationMaps(scene["objects"]) {
 		if id := stringValue(object["dramaCastId"]); id != "" {
-			if _, lookupErr := s.repo.DramaCast(req.DramaID, id); lookupErr != nil {
+			if _, lookupErr := s.repo.DramaCast(canvas.ProjectID, id); lookupErr != nil {
 				issues = append(issues, map[string]any{"code": "invalid_drama_cast", "objectId": stringValue(object["id"])})
 			}
 		}
@@ -129,5 +129,6 @@ func (s *Service) ValidateExternalPrevisScene(userID string, req ExternalPrevisR
 			issues = append(issues, map[string]any{"code": "model_unavailable", "objectId": stringValue(object["id"])})
 		}
 	}
-	return map[string]any{"sceneId": req.SceneID, "snapshotHash": creationHash(scene), "valid": len(issues) == 0, "issues": issues}, nil
+	warnings := previsAnimationWarnings(scene, req.ShotID)
+	return map[string]any{"sceneId": req.SceneID, "snapshotHash": creationHash(scene), "valid": len(issues) == 0, "issues": issues, "validationScope": "structure_and_references", "motionValidated": false, "ikConstraintsSupported": false, "requiresVisualReview": true, "warnings": warnings}, nil
 }
