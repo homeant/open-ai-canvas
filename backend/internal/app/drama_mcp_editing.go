@@ -308,6 +308,9 @@ func (s *Service) EditDramaShots(userID, projectID, episodeID string, req EditDr
 				if err := applyDramaMCPShotFields(&shot, edit); err != nil {
 					return nil, err
 				}
+				if edit.DialogueMode == nil && strings.TrimSpace(shot.Speaker) == "" && strings.TrimSpace(shot.Dialogue) == "" {
+					shot.DialogueMode = "silent"
+				}
 				if err := applyDramaMCPShotReferences(&shot, edit, references); err != nil {
 					return nil, err
 				}
