@@ -42,6 +42,7 @@ type DramaAudioInspection struct {
 	Error             string                    `json:"error,omitempty"`
 	SpeakerStatus     string                    `json:"speakerStatus"`
 	MouthStatus       string                    `json:"mouthStatus"`
+	Signal            *production.AudioSignal   `json:"signal"`
 }
 
 // InspectDramaAudio reads bytes from an owned resource; client-supplied transcript/QA cannot enter this path.
@@ -155,6 +156,32 @@ func (s *Service) inspectDramaAudioResource(ctx context.Context, userID, resourc
 		result.Alignment.Status, result.Error = "mismatch", "实际媒体时长不足以覆盖镜头时间窗"
 		return result, nil
 	}
+	wav := filepath.Join(dir, "excerpt.wav")
+	seconds := func(ms int64) string { return strconv.FormatFloat(float64(ms)/1000, 'f', 3, 64) }
+	// Only the requested time window is recognized; expected dialogue is never sent as an ASR prompt.
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", file.Name(), "-ss", seconds(offset), "-t", seconds(cue.EndMs-cue.StartMs), "-map", "0:"+strconv.Itoa(selected), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		result.Error = "音频片段解码失败或 ffmpeg 不可用；语音未验证"
+		return result, nil
+	}
+	bytes, err := os.ReadFile(wav)
+	if err != nil {
+		return result, err
+	}
+	signal, err := production.MeasurePCM16Wav(bytes)
+	if err != nil {
+		result.Error = "PCM 信号测量失败，不能确认语音内容"
+		return result, nil
+	}
+	result.Signal = &signal
+	if signal.DigitalSilence {
+		result.Alignment.Status, result.Error = "mismatch", "目标时窗为数字静音；不使用识别器幻听作为对白证据"
+		return result, nil
+	}
+	if signal.LowEnergy {
+		result.Error = "目标时窗能量过低，语音未验证；不把 ASR 假设作为通过依据"
+		return result, nil
+	}
 	baseURL := strings.TrimSpace(os.Getenv(whisperLangEnv))
 	if baseURL == "" {
 		result.Error = "ASR 未配置：CANVAS_WHISPER_BASE_URL；音轨存在不代表文本或人声合格"
@@ -162,14 +189,6 @@ func (s *Service) inspectDramaAudioResource(ctx context.Context, userID, resourc
 	}
 	if err := s.RequireFeature(FeatureTimelineTranscription); err != nil {
 		result.Error = "ASR 功能未开放；文本未验证"
-		return result, nil
-	}
-	wav := filepath.Join(dir, "excerpt.wav")
-	seconds := func(ms int64) string { return strconv.FormatFloat(float64(ms)/1000, 'f', 3, 64) }
-	// Only the requested time window is recognized; expected dialogue is never sent as an ASR prompt.
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", file.Name(), "-ss", seconds(offset), "-t", seconds(cue.EndMs-cue.StartMs), "-map", "0:"+strconv.Itoa(selected), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav)
-	if _, err := cmd.CombinedOutput(); err != nil {
-		result.Error = "音频片段解码失败或 ffmpeg 不可用；语音未验证"
 		return result, nil
 	}
 	segments, _, err := newWhisperClient(baseURL).transcribe(ctx, wav, "zh")
