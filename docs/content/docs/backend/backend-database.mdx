@@ -5,6 +5,14 @@ description: 影策后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 镜头实体图片与视觉验收（Schema 112）
+
+`drama_shots.image_references_json` 保存单镜明确图片资源、用途及可选画布节点指纹；空字段不进入内容指纹，既有未绑定镜头不被重新标旧。写入锁定自有资源行，与删除校验串行；素材删除及孤儿清理读取这些 JSON 引用。
+
+`drama_takes` 新增可选 `episode_id`，用于新登记的 `shot_media` 候选定位和剧集删除，不回填既有历史。候选 `generation_json` 保存源裁切窗、媒体种类和计划时长，只登记、不自动采用或物理裁剪。
+
+`drama_shot_media_reviews` 按具体 take、镜头和检查层追加人工画面／文字／物理连续性观察，保存源时间窗、镜头指纹、认证检查人、状态与原因。剧集／作品删除清理对应检查与独立候选；SQLite → PostgreSQL 复制清单同步登记该表。详见 [镜头图片与视觉版本 QA](/docs/backend/drama-shot-media-mcp)。
+
 ## 短剧后期音轨版本
 
 Schema 110 新增 `drama_audio_versions` 和 `drama_audio_resource_links`。音轨版本按 `segment_id + revision` 唯一、只追加，保存分镜指纹、绑定的视频 take/资源、创建人及音频片段 JSON。每个片段记录稳定 ID、镜头、对白模式、文本／音效说明、声源、段内起止毫秒、音频源裁切起点、受管模型与音色、实际任务和已绑定资源。

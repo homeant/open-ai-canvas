@@ -644,7 +644,9 @@ type DramaSegmentView struct {
 
 // DramaSegmentRequest 是一段视频请求的预演，与提交时同一函数计算。
 type DramaSegmentRequest struct {
-	PreparationError string `json:"preparationError,omitempty"`
+	ShotImages       []DramaSegmentReference `json:"shotImages"`
+	FirstFrameShotID string                  `json:"firstFrameShotId,omitempty"`
+	PreparationError string                  `json:"preparationError,omitempty"`
 	// Operation：image_to_video（上一段最后一帧作首帧）、reference_to_video（参考图）、text_to_video。
 	Operation       string `json:"operation"`
 	Seconds         int    `json:"seconds"`
@@ -691,6 +693,14 @@ type DramaSegmentAudioReference struct {
 }
 
 type DramaSegmentReference struct {
+	ShotID     string `json:"shotId,omitempty"`
+	CanvasID   string `json:"canvasId,omitempty"`
+	NodeID     string `json:"nodeId,omitempty"`
+	NodeHash   string `json:"nodeHash,omitempty"`
+	Role       string `json:"role,omitempty"`
+	Required   bool   `json:"required,omitempty"`
+	InputOrder int    `json:"inputOrder"`
+	Note       string `json:"note,omitempty"`
 	ResourceID string `json:"resourceId,omitempty"`
 	CastID     string `json:"castId"`
 	Label      string `json:"label"`

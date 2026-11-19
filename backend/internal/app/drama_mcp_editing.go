@@ -177,15 +177,16 @@ func (s *Service) UpdateDramaEpisodeSource(userID, projectID, episodeID string, 
 }
 
 type DramaShotEdit struct {
-	Operation    string    `json:"operation"`
-	ShotID       string    `json:"shotId"`
-	NewShotID    string    `json:"newShotId,omitempty"`
-	DialogueMode *string   `json:"dialogueMode,omitempty"`
-	Scene        *string   `json:"scene,omitempty"`
-	SceneCastID  *string   `json:"sceneCastId,omitempty"`
-	CastIDs      *[]string `json:"castIds,omitempty"`
-	PropIDs      *[]string `json:"propIds,omitempty"`
-	LookCastIDs  *[]string `json:"lookCastIds,omitempty"`
+	ImageReferences *[]model.DramaShotImageReference `json:"imageReferences,omitempty"`
+	Operation       string                           `json:"operation"`
+	ShotID          string                           `json:"shotId"`
+	NewShotID       string                           `json:"newShotId,omitempty"`
+	DialogueMode    *string                          `json:"dialogueMode,omitempty"`
+	Scene           *string                          `json:"scene,omitempty"`
+	SceneCastID     *string                          `json:"sceneCastId,omitempty"`
+	CastIDs         *[]string                        `json:"castIds,omitempty"`
+	PropIDs         *[]string                        `json:"propIds,omitempty"`
+	LookCastIDs     *[]string                        `json:"lookCastIds,omitempty"`
 	UpdateDramaShotRequest
 }
 type EditDramaShotsRequest struct {
@@ -281,6 +282,9 @@ func (s *Service) EditDramaShots(userID, projectID, episodeID string, req EditDr
 			affected[shots[pos].SegmentIndex] = true
 			switch edit.Operation {
 			case "update":
+				if err := local.applyDramaShotImages(userID, projectID, &shots[pos], edit); err != nil {
+					return nil, err
+				}
 				if err := applyDramaMCPShotFields(&shots[pos], edit); err != nil {
 					return nil, err
 				}
@@ -306,6 +310,9 @@ func (s *Service) EditDramaShots(userID, projectID, episodeID string, req EditDr
 				anchor := shots[pos]
 				shot := model.DramaShot{ID: id, ProjectID: projectID, EpisodeID: episodeID, SegmentIndex: anchor.SegmentIndex, SegmentTitle: anchor.SegmentTitle, Scene: anchor.Scene, SceneCastID: anchor.SceneCastID, CastIDsJSON: anchor.CastIDsJSON, PropIDsJSON: "[]", LookCastIDsJSON: anchor.LookCastIDsJSON, Transition: "cut", DialogueMode: "dialogue", CreatedAt: time.Now()}
 				if err := applyDramaMCPShotFields(&shot, edit); err != nil {
+					return nil, err
+				}
+				if err := local.applyDramaShotImages(userID, projectID, &shot, edit); err != nil {
 					return nil, err
 				}
 				if edit.DialogueMode == nil && strings.TrimSpace(shot.Speaker) == "" && strings.TrimSpace(shot.Dialogue) == "" {

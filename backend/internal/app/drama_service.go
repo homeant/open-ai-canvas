@@ -1023,6 +1023,19 @@ func buildDramaSegmentDrafts(settings DramaSettings, meta dramaBibleMeta, shots 
 				}
 			}
 		}
+		for _, shot := range group {
+			for _, image := range dramaShotImages(shot) {
+				ref := DramaSegmentReference{ShotID: shot.ID, ResourceID: image.ResourceID, Role: image.Role, Kind: "image", Name: image.Name, Required: true, InputOrder: -1, CanvasID: image.CanvasID, NodeID: image.NodeID, NodeHash: image.NodeHash}
+				if image.Role == "information" {
+					ref.Label = fmt.Sprintf("参考图%d", len(view.Request.References)+1)
+					view.Request.References = append(view.Request.References, ref)
+					input.References = append(input.References, production.SegmentReference{Label: ref.Label, Kind: "image", Name: ref.Name, Detail: "镜头 " + shot.ID + " 的实体信息图；文字、读数和实体位置以图为准，动态产物仍须验收"})
+				} else {
+					input.References = append(input.References, production.SegmentReference{Label: "首帧图", Kind: "image", Name: ref.Name, Detail: "指定镜头首帧，必须核对生成方式与段首位置"})
+				}
+				view.Request.ShotImages = append(view.Request.ShotImages, ref)
+			}
+		}
 		for _, id := range referenceIDs {
 			cast := castByID[id]
 			label := fmt.Sprintf("参考图%d", len(view.Request.References)+1)

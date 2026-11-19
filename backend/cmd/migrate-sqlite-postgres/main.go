@@ -387,6 +387,7 @@ func migrations() []tableMigration {
 		migrateTable[model.DramaMutationReceipt]("drama_mutation_receipts"),
 		migrateTable[model.DramaAudioVersion]("drama_audio_versions"),
 		migrateTable[model.DramaAudioCheck]("drama_audio_checks"),
+		migrateTable[model.DramaShotMediaReview]("drama_shot_media_reviews"),
 		migrateTable[model.DramaAudioResourceLink]("drama_audio_resource_links"),
 		migrateTable[model.DramaJob]("drama_jobs"),
 		migrateTable[model.AuthSession]("auth_sessions"),

@@ -175,13 +175,14 @@ type DramaShot struct {
 	PropIDsJSON string `json:"propIdsJson" gorm:"type:text"`
 	// LookCastIDsJSON 是本镜出镜角色选用的造型行 ID 列表（DramaCast kind=character 且 ParentID 非空）；
 	// 空表示各角色用本集默认造型或本体。取参考图时用这里的造型行外观与参考图替换角色本体。
-	LookCastIDsJSON string `json:"lookCastIdsJson" gorm:"type:text"`
-	Speaker         string `json:"speaker" gorm:"size:120"`
-	DialogueMode    string `json:"dialogueMode" gorm:"size:24"`
-	Dialogue        string `json:"dialogue" gorm:"type:text"`
-	Action          string `json:"action" gorm:"type:text"`
-	ShotSize        string `json:"shotSize" gorm:"size:40"`
-	Camera          string `json:"camera" gorm:"size:80"`
+	LookCastIDsJSON     string `json:"lookCastIdsJson" gorm:"type:text"`
+	Speaker             string `json:"speaker" gorm:"size:120"`
+	DialogueMode        string `json:"dialogueMode" gorm:"size:24"`
+	ImageReferencesJSON string `json:"imageReferencesJson,omitempty" gorm:"type:text"`
+	Dialogue            string `json:"dialogue" gorm:"type:text"`
+	Action              string `json:"action" gorm:"type:text"`
+	ShotSize            string `json:"shotSize" gorm:"size:40"`
+	Camera              string `json:"camera" gorm:"size:80"`
 	// Transition 是进入本镜头的转场：cut / fadeblack / fadewhite；作品统一指定时以作品设置为准。
 	Transition string `json:"transition" gorm:"size:16"`
 	DurationMs int64  `json:"durationMs"`
@@ -252,6 +253,7 @@ type DramaReferenceImage struct {
 
 // DramaTake 保存每个产物的全部版本：角色/场景参考图（cast）、剧情段视频（video）与成片（final）。
 type DramaTake struct {
+	EpisodeID      string    `json:"episodeId,omitempty" gorm:"index;size:36"`
 	ShotRevision   string    `json:"shotRevision" gorm:"size:64"`
 	PromptRevision int64     `json:"promptRevision"`
 	GenerationJSON string    `json:"generationJson" gorm:"type:text"`

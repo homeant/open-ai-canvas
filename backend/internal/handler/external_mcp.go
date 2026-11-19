@@ -55,6 +55,7 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	userID := user.ID
 	registerDramaEditingMCP(server, svc, userID)
 	registerDramaAudioMCP(server, svc, userID)
+	registerDramaShotMediaMCP(server, svc, userID)
 	externalMCPTool(server, "list_models", "列出当前用户可用的创作模型及能力", func(_ context.Context, _ struct{}) (any, error) {
 		return svc.ModelCatalogForUser(user, nil)
 	})

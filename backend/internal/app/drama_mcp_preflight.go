@@ -58,12 +58,12 @@ func (s *Service) PreviewDramaSegmentGeneration(userID, projectID, episodeID str
 	textOnlyReferences := []DramaSegmentReference{}
 	if request.FirstFrameResourceID != "" {
 		images = append(images, map[string]any{"storageKey": "resource:" + request.FirstFrameResourceID})
-		sentImages = append(sentImages, map[string]any{"role": "first_frame", "resourceId": request.FirstFrameResourceID})
+		sentImages = append(sentImages, map[string]any{"role": "first_frame", "resourceId": request.FirstFrameResourceID, "shotId": request.FirstFrameShotID, "inputOrder": 0})
 	}
 	for _, ref := range request.References {
 		if ref.Sent && ref.ResourceID != "" {
 			images = append(images, map[string]any{"storageKey": "resource:" + ref.ResourceID})
-			sentImages = append(sentImages, map[string]any{"role": "reference_image", "resourceId": ref.ResourceID, "castId": ref.CastID, "label": ref.Label, "kind": ref.Kind, "name": ref.Name})
+			sentImages = append(sentImages, map[string]any{"role": "reference_image", "resourceId": ref.ResourceID, "castId": ref.CastID, "label": ref.Label, "kind": ref.Kind, "name": ref.Name, "shotId": ref.ShotID, "usageRole": ref.Role, "inputOrder": ref.InputOrder, "required": ref.Required})
 		} else {
 			textOnlyReferences = append(textOnlyReferences, ref)
 		}
