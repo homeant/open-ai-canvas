@@ -3,6 +3,9 @@ package service
 import "yingce/backend/internal/app"
 
 type (
+	DramaAudioScope                 = app.DramaAudioScope
+	SaveDramaAudioRequest           = app.SaveDramaAudioRequest
+	MutateDramaAudioCueRequest      = app.MutateDramaAudioCueRequest
 	GenerateDramaMCPRequest         = app.GenerateDramaMCPRequest
 	ComposeDramaMCPRequest          = app.ComposeDramaMCPRequest
 	UpdateDramaEpisodeSourceRequest = app.UpdateDramaEpisodeSourceRequest

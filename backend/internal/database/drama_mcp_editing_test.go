@@ -16,7 +16,12 @@ func TestDramaMCPEditingMigrationPreservesExistingRows(t *testing.T) {
 	if err := db.Exec("INSERT INTO drama_shots (id,dialogue) VALUES ('shot','原台词')").Error; err != nil {
 		t.Fatal(err)
 	}
-	step := schemaMigrations[len(schemaMigrations)-1]
+	var step migration
+	for _, candidate := range schemaMigrations {
+		if candidate.version == 109 {
+			step = candidate
+		}
+	}
 	if step.version != 109 {
 		t.Fatal("expected migration 109")
 	}

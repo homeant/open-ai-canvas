@@ -1184,6 +1184,16 @@ install 的 Base URL、协议、能力和成本全部从服务端快照读取，
 
 编排由后端调度循环推进，浏览器只提交意图；制作台目前按 3 秒轮询摘要和当前集详情，没有新增 SSE，也不需要调整代理缓冲配置。模型选择只接受逻辑模型或系统渠道模型；浏览器自定义渠道密钥无法驱动无人值守流水线。
 
+### MCP 后期音轨
+
+- `get_segment_audio`：作品／剧集／段定位，`revision=0` 读最新，返回镜头时间窗、对白模式与待检查的嘴部要求、音轨版本、文本、声源、任务状态及实际产物 ID。历史最多返回最近 50 版，可指定版本读取。
+- `save_segment_audio`：整体保存 `tracks`，首建 `expectedAudioRevision=0`，其后用当前版本；始终提供 `expectedShotRevision`、`idempotencyKey`。`speech` 片段的说话人和模式须与镜头一致；`sfx` 使用 `silent` 并填写音效说明。`startMs/endMs` 是段内时间，必须包含在绑定镜头窗内，`sourceOffsetMs` 为音频源起点。文本、模型、时间窗或分镜改变后不继承旧任务／音频绑定。
+- `preview_segment_audio`：只读执行真实 TTS 准入和报价，返回待提交片段报价、总额、账号积分、作品剩余预算与阻塞项，不排队、不扣费。
+- `generate_segment_audio_cue`：显式提交单个 TTS，需版本、`cueId`、非负 `maxCostMicrocredits` 和幂等键；复用受管模型、配额和计费，返回新音轨版本中的 `taskId`。
+- `bind_segment_audio_cue`：任务成功后只接受该任务实际音频产物；无任务时可绑定当前用户自有音频。资源必须就绪且已知时长覆盖片段，不自动加速／拉伸。脚步、纸页等音效由此绑定。
+
+上述工具仅保存独立后期版本，不自动混音、不替换正式视频，也不把 TTS 请求文本或 AAC 存在当作实际对白合格。`videoTakeId` 将音轨计划绑定到本段一个明确视频版本，空表示尚未选择视频。
+
 ### 剧情段参考与音色选择
 
 `PATCH /dramas/:id/episodes/:episodeId/segments/:index` 还接受以下字段，省略表示保留该项：

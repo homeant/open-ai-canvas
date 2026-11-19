@@ -222,5 +222,12 @@ func (r *Repository) dramaResourceReferences(userID string, resourceIDs []string
 	for _, take := range takes {
 		references = append(references, ResourceDirectReference{Kind: DramaResourceReferenceKind, ID: take.ID, Title: "短剧版本", ResourceID: take.ResourceID})
 	}
+	var audioLinks []model.DramaAudioResourceLink
+	if err := r.db.Where("project_id IN (?) AND resource_id IN ?", projects, resourceIDs).Find(&audioLinks).Error; err != nil {
+		return nil, err
+	}
+	for _, link := range audioLinks {
+		references = append(references, ResourceDirectReference{Kind: DramaResourceReferenceKind, ID: link.VersionID, Title: "短剧音轨版本", ResourceID: link.ResourceID})
+	}
 	return references, nil
 }

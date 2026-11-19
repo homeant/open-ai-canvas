@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 109
+const CurrentSchemaVersion int64 = 110
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -355,6 +355,9 @@ var schemaMigrations = []migration{
 	{version: 104, name: "drama_segment_prompt_revisions", checksum: "sha256:drama-segment-prompt-revisions-v104", apply: migrateDramaSegmentPromptRevisions},
 	{version: 109, name: "drama_mcp_editing", checksum: "sha256:drama-mcp-editing-v109", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaMutationReceipt{}, &model.DramaShot{}, &model.DramaSegment{}, &model.DramaTake{})
+	}},
+	{version: 110, name: "drama_audio_versions", checksum: "sha256:drama-audio-versions-v110", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaAudioVersion{}, &model.DramaAudioResourceLink{})
 	}},
 }
 
