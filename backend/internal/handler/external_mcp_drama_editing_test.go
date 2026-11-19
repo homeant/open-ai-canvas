@@ -33,6 +33,9 @@ func TestExternalMCPDramaEditingDiscoveryAndStructuredErrors(t *testing.T) {
 	}
 	wanted := map[string]bool{"get_episode_source": false, "update_episode_source": false, "edit_episode_shots": false, "rewrite_segment_prompt": false, "adopt_segment_prompt": false, "confirm_segment_prompt": false, "preview_segment_generation": false, "inspect_segment_version_media": false, "get_drama_job": false}
 	wanted["edit_segment_references"] = false
+	for _, name := range []string{"get_segment_audio", "save_segment_audio", "preview_segment_audio", "generate_segment_audio_cue", "bind_segment_audio_cue"} {
+		wanted[name] = false
+	}
 	for _, tool := range list.Tools {
 		if _, ok := wanted[tool.Name]; ok {
 			wanted[tool.Name] = true
