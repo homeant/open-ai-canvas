@@ -56,13 +56,23 @@ func (s *Service) PreviewDramaSegmentGeneration(userID, projectID, episodeID str
 	config := map[string]any{"videoSeconds": itoa(request.Seconds), "videoGenerateAudio": strconv.FormatBool(request.GenerateAudio)}
 	dramaVideoScreen{Size: request.Size, Resolution: request.Resolution}.apply(config)
 	images := []any{}
+	sentImages := []map[string]any{}
+	textOnlyReferences := []DramaSegmentReference{}
 	if request.FirstFrameResourceID != "" {
 		images = append(images, map[string]any{"storageKey": "resource:" + request.FirstFrameResourceID})
+		sentImages = append(sentImages, map[string]any{"role": "first_frame", "resourceId": request.FirstFrameResourceID})
 	}
 	for _, ref := range request.References {
 		if ref.Sent && ref.ResourceID != "" {
 			images = append(images, map[string]any{"storageKey": "resource:" + ref.ResourceID})
+			sentImages = append(sentImages, map[string]any{"role": "reference_image", "resourceId": ref.ResourceID, "castId": ref.CastID, "label": ref.Label, "kind": ref.Kind, "name": ref.Name})
+		} else {
+			textOnlyReferences = append(textOnlyReferences, ref)
 		}
+	}
+	shotBindings := []map[string]any{}
+	for _, shot := range detail.Shots {
+		shotBindings = append(shotBindings, map[string]any{"shotId": shot.ID, "scene": shot.Scene, "sceneCastId": shot.SceneCastID, "castIds": append([]string{}, decodeStringList(shot.CastIDsJSON)...), "propIds": append([]string{}, decodeStringList(shot.PropIDsJSON)...), "lookCastIds": append([]string{}, decodeStringList(shot.LookCastIDsJSON)...)})
 	}
 	audios := []any{}
 	for _, ref := range request.AudioReferences {
@@ -114,5 +124,5 @@ func (s *Service) PreviewDramaSegmentGeneration(userID, projectID, episodeID str
 			needsVoice = true
 		}
 	}
-	return map[string]any{"segmentIndex": index, "segmentRevision": segment.Revision, "shotRevision": segment.ShotRevision, "promptRevision": segment.PromptRevision, "model": segment.VideoModel, "request": request, "fullPrompt": strings.TrimSpace(request.Header + "\n\n" + segment.VideoPrompt), "intent": intent, "quote": quote, "unquotableReason": quoteReason, "blockers": blockers, "canSubmit": len(blockers) == 0, "sound": map[string]any{"modelSupportsAudioGeneration": request.GenerateAudio, "speechGenerationGuaranteed": false, "hasAudioTrack": nil, "hasSpeech": nil, "usableDialogueAudio": "unverified", "needsPostDubbing": nil, "postDubbingRecommended": needsVoice && !request.GenerateAudio, "source": "model_capability_contract", "note": "模型能力不证明文件有音轨或有人声；音轨存在不代表台词正确或独白合格，是否需要后期配音须检查实际产物。"}}, nil
+	return map[string]any{"segmentIndex": index, "segmentRevision": segment.Revision, "shotRevision": segment.ShotRevision, "episodeRevision": detail.EpisodeRevision, "referenceMode": segment.ReferenceMode, "shotBindings": shotBindings, "sentReferenceImages": sentImages, "textOnlyReferences": textOnlyReferences, "promptRevision": segment.PromptRevision, "model": segment.VideoModel, "request": request, "fullPrompt": strings.TrimSpace(request.Header + "\n\n" + segment.VideoPrompt), "intent": intent, "quote": quote, "unquotableReason": quoteReason, "blockers": blockers, "canSubmit": len(blockers) == 0, "sound": map[string]any{"modelSupportsAudioGeneration": request.GenerateAudio, "speechGenerationGuaranteed": false, "hasAudioTrack": nil, "hasSpeech": nil, "usableDialogueAudio": "unverified", "needsPostDubbing": nil, "postDubbingRecommended": needsVoice && !request.GenerateAudio, "source": "model_capability_contract", "note": "模型能力不证明文件有音轨或有人声；音轨存在不代表台词正确或独白合格，是否需要后期配音须检查实际产物。"}}, nil
 }

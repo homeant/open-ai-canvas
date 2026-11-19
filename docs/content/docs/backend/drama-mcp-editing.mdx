@@ -49,9 +49,21 @@ description: 原文、原子镜头编辑、提示词候选采用、生成预检�
 }
 ```
 
-插镜必须传 `durationSeconds`，不会先创建默认三秒空镜。`newShotId` 可省略由服务器生成；指定时可在同一批后续操作中引用，不得超过 36 字节。可修改 `speaker/dialogue/action/shotSize/imagePrompt/camera/videoPrompt/transition/durationSeconds/dialogueMode`；`imagePrompt` 是起幅，`videoPrompt` 是镜头内动作与运镜。`transition` 为 `cut/fadeblack/fadewhite`；`dialogueMode` 为 `dialogue/inner_monologue/voice_over/silent`。内心独白和画外音会向文本模型明确传递“不张嘴、不对口型”，仍需验收实际视频。
+插镜必须传 `durationSeconds`，不会先创建默认三秒空镜。`newShotId` 可省略由服务器生成；指定时可在同一批后续操作中引用，不得超过 36 字节。可修改 `speaker/dialogue/action/shotSize/imagePrompt/camera/videoPrompt/transition/durationSeconds/dialogueMode`；`imagePrompt` 是起幅，`videoPrompt` 是镜头内动作与运镜。另支持 `scene/sceneCastId/castIds/propIds/lookCastIds`，按实际设定 ID 重绑引用，空数组清除，省略保留；`sceneCastId:""` 解绑图片但保留场景文字。重绑非空场景而省略 `scene` 时同步为新场景名称，显式 `scene` 可补充位置描述。角色本体、造型、道具、场景校验种类与当前作品归属；造型须属于镜头角色，改角色时须同步调整不再适用的造型。`transition` 为 `cut/fadeblack/fadewhite`；`dialogueMode` 为 `dialogue/inner_monologue/voice_over/silent`。内心独白和画外音会向文本模型明确传递“不张嘴、不对口型”，仍需验收实际视频。
 
 回执含新 `episodeRevision`、稳定 ID 与排序后的 `shots`（含 `segmentIndex`）、各段 `segmentDurationsMs`、`insertedShotIds`。按每段实际视频模型上限验证最终结果，超限错误指明从 0 开始的段索引、总时长、上限及超出秒数，整批不落地。受影响段保留旧提示词和视频，标为 `conflict/stale`，需要重新核对。
+
+## 镜头与段级图片引用
+
+场景引用纠正示例（使用最新 `expectedEpisodeRevision` 和新的幂等键包在 `edit_episode_shots` 中）：
+
+```json
+{"operation":"update","shotId":"dorm-shot-id","sceneCastId":"dorm-scene-cast-id","castIds":["chenqi-character-cast-id"],"propIds":[],"lookCastIds":[]}
+```
+
+ID 来自本作品的设定／造型列表，不是媒体 resourceId。把 `action/imagePrompt` 改成宿舍或在提示词中写“不要出现办公室”，不会自动改掉旧办公室绑定。
+
+段级手动参考选择优先于镜头自动收集。可调用 `edit_segment_references`，传 `dramaId/episodeId/segmentIndex/expectedSegmentRevision/expectedShotRevision/idempotencyKey`，用 `referenceCastIds` 指定有序设定 ID（`[]` 表示不发设定图片），或 `autoReferences:true` 恢复镜头自动引用；二者不能同时传。`referenceImages:[]` 可清除段级额外图片。每项校验资源归属，失败整批回滚；不修改镜头绑定、不自动生成。引用改变后保留正文与视频，提示词标为 `conflict`，须重读、修改／确认后才能生成。
 
 ## 重写、采用与人工确认
 
@@ -66,6 +78,8 @@ description: 原文、原子镜头编辑、提示词候选采用、生成预检�
 ## 预检、版本和声音
 
 `preview_segment_generation` 为只读：返回实际视频模型、同提交路径计算的 `request`（时长档位、画幅、分辨率、首帧、带编号与资源 ID 的参考图／音频）、`fullPrompt`、按相同意图转换规则生成的 `intent`、`quote/unquotableReason`、`blockers/canSubmit`。历史视频存在不保证当前模型规格仍可报价。
+
+`sentReferenceImages` 明确列出随实际请求发送的图片，区分 `first_frame/reference_image`；`textOnlyReferences` 是未附图的设定，不能当作图片已发送。`shotBindings` 返回各稳定镜头的角色／道具／造型／场景绑定，`referenceMode` 显示自动或段级自定义覆盖，并附 `episodeRevision` 供原子编辑。`fullPrompt` 仍是实际文字；文字中的名称或否定要求不等同于图片清单。更换场景后应同时检查镜头绑定、段级覆盖、额外图片和实际发送列表。
 
 `request.generateAudio` 只表示当前模型能力合同对应的请求开关，**不表示产物没有／具有音轨或人声**。预检的 `sound` 分别返回模型音频能力、未承诺的语音质量、未实测的音轨／人声以及是否可能需要后期配音；未知使用 `null/unverified`。网页请求预演使用相同表述。
 

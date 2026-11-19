@@ -8,6 +8,7 @@ type (
 	UpdateDramaEpisodeSourceRequest = app.UpdateDramaEpisodeSourceRequest
 	EditDramaShotsRequest           = app.EditDramaShotsRequest
 	DramaMCPPromptRequest           = app.DramaMCPPromptRequest
+	DramaMCPReferenceRequest        = app.DramaMCPReferenceRequest
 	CreateDramaRequest              = app.CreateDramaRequest
 	UpdateDramaSettingsRequest      = app.UpdateDramaSettingsRequest
 	UpdateDramaShotRequest          = app.UpdateDramaShotRequest

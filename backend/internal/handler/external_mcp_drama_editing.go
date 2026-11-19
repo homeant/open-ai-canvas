@@ -28,12 +28,15 @@ func registerDramaEditingMCP(server *mcp.Server, svc *service.Service, userID st
 	}) (any, error) {
 		return svc.UpdateDramaEpisodeSource(userID, input.DramaID, input.EpisodeID, input.UpdateDramaEpisodeSourceRequest)
 	})
-	externalMCPTool(server, "edit_episode_shots", "按稳定 shotId 原子提交 edits：insert_after/update/delete；插镜须明确 durationSeconds，可用 newShotId 在同一批中继续定位。dialogueMode 支持 dialogue/inner_monologue/voice_over/silent。需 expectedEpisodeRevision 与幂等键，超时长整批拒绝", func(_ context.Context, input struct {
+	externalMCPTool(server, "edit_episode_shots", "按 shotId 原子 insert_after/update/delete；支持 scene/sceneCastId/castIds/propIds/lookCastIds（空数组清除），重绑场景默认同步场景名。需 expectedEpisodeRevision 与幂等键；插镜须 durationSeconds，newShotId 可同批定位。绑定变化使提示词待复核", func(_ context.Context, input struct {
 		DramaID   string `json:"dramaId"`
 		EpisodeID string `json:"episodeId"`
 		service.EditDramaShotsRequest
 	}) (any, error) {
 		return svc.EditDramaShots(userID, input.DramaID, input.EpisodeID, input.EditDramaShotsRequest)
+	})
+	externalMCPTool(server, "edit_segment_references", "修改段级图片选择；需 expectedSegmentRevision、expectedShotRevision、幂等键。referenceCastIds 按顺序指定设定，[] 清空；autoReferences=true 恢复镜头自动引用；referenceImages:[] 清除额外图片。不会自动生成或修改镜头绑定，修改后须复核提示词", func(_ context.Context, input service.DramaMCPReferenceRequest) (any, error) {
+		return svc.EditDramaSegmentReferencesMCP(userID, input)
 	})
 	for _, command := range []struct{ name, action, description string }{
 		{"rewrite_segment_prompt", "rewrite", "异步按当前分镜重写；model 可选择文本模型。返回 jobId，使用 get_drama_job 等候 taskId，再用 get_task 查询。候选必须显式采用。需段版本、分镜版本、幂等键"},
