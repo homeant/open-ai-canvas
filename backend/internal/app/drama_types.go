@@ -657,7 +657,8 @@ type DramaSegmentRequest struct {
 	// PromptMaxChars 是视频模型的提示词字符上限（含开头的参考图说明）；0 表示未声明。
 	PromptMaxChars int `json:"promptMaxChars,omitempty"`
 	// GenerateAudio 是模型合同的音频生成开关，不是产物音轨、人声或对白质量的检测结果。
-	GenerateAudio bool `json:"generateAudio"`
+	GenerateAudio   bool   `json:"generateAudio"`
+	AudioOutputMode string `json:"audioOutputMode"`
 	// FirstFrame 是上一段视频的最后一帧；第一段为空。FirstFramePending 表示上一段还没生成，生成后才能提交本段。
 	FirstFrameResourceID string                  `json:"firstFrameResourceId,omitempty"`
 	FirstFramePending    bool                    `json:"firstFramePending"`
@@ -826,8 +827,9 @@ type DramaModelOption struct {
 	TailFrameChain bool `json:"tailFrameChain,omitempty"`
 	// VideoRatios 仅视频模型：能准确给出的作品画幅；不含作品画幅的模型不能用于该作品。
 	VideoRatios []string `json:"videoRatios,omitempty"`
-	// GenerateAudio 仅视频模型：是否同步生成对白与音效；false 时段视频没有声音。
-	GenerateAudio *bool `json:"generateAudio,omitempty"`
+	// GenerateAudio 表示支持同步音频输出；不是实际文件的人声、台词或音效验收结论。
+	GenerateAudio   *bool  `json:"generateAudio,omitempty"`
+	AudioOutputMode string `json:"audioOutputMode,omitempty"`
 	// VideoResolutions 仅视频模型：作品可指定的分辨率档位（如 720p、1080p）与模型默认档位；为空表示模型不提供可选分辨率。
 	VideoResolutions       []string `json:"videoResolutions,omitempty"`
 	DefaultVideoResolution string   `json:"defaultVideoResolution,omitempty"`
