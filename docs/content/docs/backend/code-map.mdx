@@ -5,6 +5,11 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## 画布提交前校验与等待恢复
+
+- 实际提交：`web/src/pages/canvas/use-canvas-generation-executor.ts`；尝试归属与准备终态：`web/src/lib/canvas/canvas-task-state.ts`。校验失败持久化为可重试错误，取消准备回到空闲。
+- 历史无绑定等待的结束和确认后重试：`use-canvas-generation-retry.ts`；实际节点状态与入口：`components/canvas/canvas-node-status-content.tsx`。结束本地等待不代表后台任务已取消。
+
 ## 预演台逐帧取样与动作诊断
 
 - 外部 MCP 入口：`handler/external_mcp.go`；只读取样：`app/external_previs_samples.go`；资源校验与真实浏览器边界：`app/external_previs_headless.go`。画幅默认值、补丁字段拒绝与根旋转风险在 `app/previs_validation.go`。
