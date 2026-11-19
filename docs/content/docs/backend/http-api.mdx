@@ -1194,6 +1194,8 @@ install 的 Base URL、协议、能力和成本全部从服务端快照读取，
 
 上述工具仅保存独立后期版本，不自动混音、不替换正式视频，也不把 TTS 请求文本或 AAC 存在当作实际对白合格。`videoTakeId` 将音轨计划绑定到本段一个明确视频版本，空表示尚未选择视频。
 
+`inspect_segment_audio` 对明确音轨版本、片段及 `cue/video` 来源执行服务端 ffprobe／ffmpeg／whisper.cpp 检查，返回实际媒体哈希、文本、句／字时间戳和匹配结果。缺少 ASR 或字时间戳如实保持未知／不可用。`record_segment_audio_qa` 追加人工内容／画面／声源／嘴部／音效／最终验收证据；最终通过绑定当前检查集合，之后出现新证据会失效，不会把存在 AAC 当作合格独白。调用与验收边界见 [后期音轨与验收](/docs/backend/drama-audio-mcp)。
+
 ### 剧情段参考与音色选择
 
 `PATCH /dramas/:id/episodes/:episodeId/segments/:index` 还接受以下字段，省略表示保留该项：

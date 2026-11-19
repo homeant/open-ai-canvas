@@ -8,6 +8,19 @@ import (
 )
 
 func registerDramaAudioMCP(server *mcp.Server, svc *service.Service, userID string) {
+	externalMCPTool(server, "inspect_segment_audio", "检查明确音轨版本中 speech 片段的实际文件，source=cue 为配音音频，video 为该视频时窗的真实音轨。服务端 ffprobe/ffmpeg/whisper.cpp 识别并保存文件哈希、文本和时间戳比对；缺少 ASR 返回 unknown，字级时间戳缺失为 unavailable。不会推断说话人或口型通过。需幂等键与 expectedCheckId", func(ctx context.Context, input service.InspectDramaAudioRequest) (any, error) {
+		policy, err := svc.RuntimePolicy()
+		if err != nil {
+			return nil, err
+		}
+		if err := externalMCPAllow(ctx, svc, "audio-inspect:"+userID, policy.Request.TaskCreatePerMinute); err != nil {
+			return nil, err
+		}
+		return svc.InspectDramaAudio(ctx, userID, input)
+	})
+	externalMCPTool(server, "record_segment_audio_qa", "对明确音轨/视频版本追加人工分层 QA：content/picture/speaker/mouth/sound_effect/final。需完整观察时间窗、依据或拒绝原因、expectedCheckId 与幂等键。内心独白须 closed；画外旁白可明确 not_visible；开口对白须 speaking 且 lipSyncChecked。最终通过前需 ASR、声源、嘴部、音效、内容和画面全部通过；不替换正式视频", func(_ context.Context, input service.DramaAudioQARequest) (any, error) {
+		return svc.RecordDramaAudioQA(userID, input)
+	})
 	externalMCPTool(server, "get_segment_audio", "读取段/镜音轨计划、声源、文本、段内时间窗、实际任务/资源和版本；revision=0 读最新。requestedText 不代表实际语音，mouthRule 是待检查要求", func(_ context.Context, input struct {
 		service.DramaAudioScope
 		Revision int64 `json:"revision"`

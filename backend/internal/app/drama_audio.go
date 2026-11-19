@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -106,6 +107,8 @@ func (s *Service) dramaAudioTarget(userID string, scope DramaAudioScope) (dramaA
 		rule := "closed"
 		if mode == "dialogue" {
 			rule = "speaking"
+		} else if mode == "voice_over" {
+			rule = "offscreen_or_closed"
 		}
 		target.shots = append(target.shots, shot)
 		target.windows = append(target.windows, DramaAudioShotWindow{ShotID: shot.ID, Position: shot.Position, StartMs: target.totalMs, EndMs: target.totalMs + shot.DurationMs, DialogueMode: mode, Speaker: shot.Speaker, Text: shot.Dialogue, MouthRule: rule})
@@ -160,7 +163,11 @@ func (s *Service) DramaSegmentAudio(userID string, scope DramaAudioScope, revisi
 			tasks = append(tasks, map[string]any{"cueId": cue.ID, "taskId": task.ID, "status": task.Status, "stage": task.Stage, "error": taskForOutput(*task).Error, "requestedText": cue.Text, "actualTranscript": nil, "resultResourceId": dramaTaskResource(task), "boundResourceId": cue.ResourceID})
 		}
 	}
-	return map[string]any{"version": version, "versions": history, "shotRevision": dramaShotRevision(target.shots, scope.SegmentIndex), "shotWindows": target.windows, "durationMs": target.totalMs, "stale": stale, "tasks": tasks, "currentVideoResourceId": target.segment.VideoResourceID, "qaStatus": "unreviewed", "note": "音轨版本是后期计划，不会替换本段视频；requestedText 不是实际转写。独白/旁白的声源在画外，mouthRule 是待检查的要求。"}, nil
+	qa, err := s.dramaAudioQA(version, target)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"version": version, "versions": history, "shotRevision": dramaShotRevision(target.shots, scope.SegmentIndex), "shotWindows": target.windows, "durationMs": target.totalMs, "stale": stale, "tasks": tasks, "currentVideoResourceId": target.segment.VideoResourceID, "qaStatus": qa["status"], "qa": qa, "note": "音轨版本是后期计划，不会替换本段视频；requestedText 不是实际转写。独白/旁白的声源在画外，mouthRule 是待检查的要求。"}, nil
 }
 
 type SaveDramaAudioRequest struct {
@@ -193,6 +200,7 @@ func validateDramaAudioCues(inputs []DramaAudioCueInput, target dramaAudioTarget
 		windows[window.ShotID] = window
 	}
 	seen := map[string]bool{}
+	speech := []DramaAudioCueInput{}
 	for _, cue := range inputs {
 		w, ok := windows[cue.ShotID]
 		if cue.ID == "" || len(cue.ID) > 80 || seen[cue.ID] || !ok {
@@ -216,6 +224,13 @@ func validateDramaAudioCues(inputs []DramaAudioCueInput, target dramaAudioTarget
 		}
 		if cue.DialogueMode != "dialogue" && cue.DialogueMode != "inner_monologue" && cue.DialogueMode != "voice_over" {
 			return BadAuthRequest("配音模式无效")
+		}
+		speech = append(speech, cue)
+	}
+	sort.Slice(speech, func(i, j int) bool { return speech[i].StartMs < speech[j].StartMs })
+	for i := 1; i < len(speech); i++ {
+		if speech[i].StartMs < speech[i-1].EndMs {
+			return BadAuthRequest("同一分镜对白的音频片段不能重叠")
 		}
 	}
 	return nil
@@ -446,6 +461,7 @@ func (s *Service) PreviewDramaSegmentAudio(userID string, scope DramaAudioScope)
 	if version == nil {
 		blockers = append(blockers, "尚未保存音轨计划")
 	} else {
+		blockers = append(blockers, dramaAudioCoverage(target, version.Tracks)...)
 		if version.ShotRevision != dramaShotRevision(target.shots, scope.SegmentIndex) {
 			blockers = append(blockers, "分镜已变化，须重存计划并重新验收")
 		}
