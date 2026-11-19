@@ -1017,7 +1017,7 @@ func (r *Repository) SaveDramaSegmentOverrideIfRevision(segment model.DramaSegme
 			revision = current.Revision
 			return nil
 		}
-		if err := invalidateDramaSegment(tx, current, map[string]any{"video_prompt_override": segment.VideoPromptOverride}, true); err != nil {
+		if err := invalidateDramaSegment(tx, current, map[string]any{"video_prompt_override": segment.VideoPromptOverride, "prompt_revision": current.PromptRevision + 1}, true); err != nil {
 			return err
 		}
 		revision = current.Revision + 1
@@ -1353,7 +1353,7 @@ func (r *Repository) RequestDramaSegmentVideosIfRevision(projectID, episodeID st
 			if err := tx.Where("project_id = ? AND episode_id = ? AND segment_index = ?", projectID, episodeID, index).First(&segment).Error; err != nil {
 				return err
 			}
-			if expectedPromptRevision != nil && segment.Revision != *expectedPromptRevision {
+			if expectedPromptRevision != nil && segment.PromptRevision != *expectedPromptRevision {
 				return ErrCreationConflict
 			}
 			if segment.VideoStatus == "running" {

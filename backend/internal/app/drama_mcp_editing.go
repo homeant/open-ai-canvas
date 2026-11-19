@@ -20,7 +20,7 @@ func dramaContentRevision(value any) string {
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 
-func dramaMCPConflict(current map[string]any) error {
+func dramaMCPConflict(current map[string]any) *AppError {
 	err := NewAppError(409, "内容版本已改变，请重新读取后再提交")
 	err.Details = current
 	return err
