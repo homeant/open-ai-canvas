@@ -1,6 +1,7 @@
 import { Box3, Object3D } from "three";
 import type { PrevisScene } from "@/types/previs";
 import { resolvePrevisShotScene } from "./previs-shot-state";
+import type { PrevisContactResult } from "./previs-contact-constraints";
 
 /** World-space bounds are a broad-phase warning, not a contact or IK solver. */
 export function inspectPrevisFrame(world: Object3D, scene: PrevisScene) {
@@ -11,13 +12,21 @@ export function inspectPrevisFrame(world: Object3D, scene: PrevisScene) {
             .map((object) => [object.id, object]),
     );
     const bounds: Array<{ id: string; kind: string; box: Box3 }> = [];
+    const contacts: Array<PrevisContactResult & { objectId: string }> = [];
+    const rigs: Array<Record<string, unknown>> = [];
     world.traverse((node) => {
         const object = objects.get(node.userData.previsObjectId);
         if (!object || !node.visible) return;
+        node.traverse((child) => {
+            const results = child.userData.previsContactResults as PrevisContactResult[] | undefined;
+            if (results) for (const result of results) contacts.push({ ...result, objectId: object.id });
+            if (child.userData.previsRigState) rigs.push({ objectId: object.id, ...child.userData.previsRigState });
+        });
         const box = new Box3().setFromObject(node, true);
         if (!box.isEmpty() && [...box.min.toArray(), ...box.max.toArray()].every(Number.isFinite)) bounds.push({ id: object.id, kind: object.kind === "actor" || object.primitive === "character" ? "actor" : object.kind, box });
     });
     const warnings: Array<Record<string, unknown>> = [];
+    for (const contact of contacts) if (contact.status !== "satisfied") warnings.push({ code: "contact_unsatisfied", ...contact });
     for (const id of objects.keys()) {
         if (!bounds.some((item) => item.id === id)) warnings.push({ code: "bounds_unavailable", objectId: id });
     }
@@ -41,8 +50,13 @@ export function inspectPrevisFrame(world: Object3D, scene: PrevisScene) {
         certainty: "broad_phase",
         complete: bounds.length === objects.size,
         collisionConfirmed: false,
-        ikConstraintsSupported: false,
-        contactConstraints: "not_solved",
+        ikConstraintsSupported: true,
+        contactSolver: "standard_mannequin_position_ccd",
+        fullBodyIK: false,
+        jointLimits: false,
+        contactConstraints: contacts,
+        contactsSatisfied: contacts.length ? contacts.every((item) => item.status === "satisfied") : null,
+        rigs,
         warnings,
         objects: bounds.map(({ id, box }) => ({ id, min: box.min.toArray(), max: box.max.toArray() })),
     };

@@ -1,9 +1,21 @@
 import type { PrevisObject, PrevisScene, PrevisShot, PrevisShotObjectState } from "@/types/previs";
+import { resolvePrevisKeyframeProgress } from "./previs-scene";
 
-const scopedFields = ["visible", "transform", "pose", "keyframes", "boneOverrides", "boneTracks", "motions", "motionPath", "motionClips", "activeMotionClipId"] as const;
+const scopedFields = ["visible", "transform", "pose", "keyframes", "boneOverrides", "boneTracks", "contactConstraints", "motions", "motionPath", "motionClips", "activeMotionClipId"] as const;
 
 export function resolvePrevisKeyframePose(object: Pick<PrevisObject, "pose" | "keyframes">, time: number) {
     return object.keyframes.filter((frame) => frame.pose && frame.time <= time).toSorted((a, b) => b.time - a.time)[0]?.pose || object.pose;
+}
+
+export function resolvePrevisPoseTransition(object: Pick<PrevisObject, "pose" | "keyframes">, time: number) {
+    const frames = object.keyframes.filter((frame) => frame.pose).toSorted((a, b) => a.time - b.time);
+    const previous = frames.filter((frame) => frame.time <= time).at(-1);
+    const next = frames.find((frame) => frame.time > time);
+    const from = previous?.pose || object.pose || "stand";
+    if (!next) return { from, to: from, progress: 0 };
+    const start = previous?.time || 0;
+    const progress = resolvePrevisKeyframeProgress(Math.max(0, Math.min(1, (time - start) / Math.max(0.001, next.time - start))), previous?.easing);
+    return { from, to: next.pose!, progress };
 }
 
 export function resolvePrevisShotObject(object: PrevisObject, shot?: PrevisShot | null, time?: number): PrevisObject {
@@ -40,6 +52,7 @@ function snapshot(object: PrevisObject): PrevisShotObjectState {
         keyframes: object.keyframes,
         boneOverrides: object.boneOverrides || {},
         boneTracks: object.boneTracks || [],
+        contactConstraints: object.contactConstraints || [],
         motions: object.motions || [],
         motionPath: object.motionPath || null,
         motionClips: object.motionClips || [],

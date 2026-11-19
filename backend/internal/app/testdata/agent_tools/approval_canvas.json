@@ -486,6 +486,30 @@
                   "maxLength": 32,
                   "type": "string"
                 },
+                "bone": {
+                  "enum": [
+                    "hips",
+                    "spine",
+                    "chest",
+                    "neck",
+                    "head",
+                    "leftShoulder",
+                    "leftUpperArm",
+                    "leftLowerArm",
+                    "leftHand",
+                    "rightShoulder",
+                    "rightUpperArm",
+                    "rightLowerArm",
+                    "rightHand",
+                    "leftUpperLeg",
+                    "leftLowerLeg",
+                    "leftFoot",
+                    "rightUpperLeg",
+                    "rightLowerLeg",
+                    "rightFoot"
+                  ],
+                  "type": "string"
+                },
                 "cameraId": {
                   "maxLength": 80,
                   "type": "string"
@@ -526,6 +550,10 @@
                   "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
                   "type": "string"
                 },
+                "constraintId": {
+                  "maxLength": 120,
+                  "type": "string"
+                },
                 "dramaCastId": {
                   "maxLength": 80,
                   "type": "string"
@@ -546,6 +574,20 @@
                     "smooth"
                   ],
                   "type": "string"
+                },
+                "effector": {
+                  "enum": [
+                    "leftHand",
+                    "rightHand",
+                    "leftFoot",
+                    "rightFoot"
+                  ],
+                  "type": "string"
+                },
+                "endTime": {
+                  "maximum": 60,
+                  "minimum": 0,
+                  "type": "number"
                 },
                 "environmentIntensity": {
                   "maximum": 100,
@@ -717,6 +759,15 @@
                   "maxLength": 2000,
                   "type": "string"
                 },
+                "quaternion": {
+                  "description": "归一化 [x,y,z,w]，不是欧拉角",
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 4,
+                  "minItems": 4,
+                  "type": "array"
+                },
                 "referenceNodeId": {
                   "maxLength": 120,
                   "type": "string"
@@ -773,6 +824,16 @@
                   "minimum": 0,
                   "type": "number"
                 },
+                "startTime": {
+                  "maximum": 60,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "surfaceObjectId": {
+                  "description": "有值时 target 为该物体局部点，否则为世界米制点",
+                  "maxLength": 80,
+                  "type": "string"
+                },
                 "target": {
                   "items": {
                     "type": "number"
@@ -789,6 +850,11 @@
                 "title": {
                   "maxLength": 160,
                   "type": "string"
+                },
+                "tolerance": {
+                  "maximum": 0.1,
+                  "minimum": 0.001,
+                  "type": "number"
                 },
                 "type": {
                   "enum": [
@@ -815,7 +881,14 @@
                     "camera_keyframe_remove",
                     "light_add",
                     "light_update",
-                    "light_remove"
+                    "light_remove",
+                    "bone_override_set",
+                    "bone_override_clear",
+                    "bone_keyframe_upsert",
+                    "bone_keyframe_remove",
+                    "bone_track_clear",
+                    "contact_constraint_set",
+                    "contact_constraint_remove"
                   ],
                   "type": "string"
                 },

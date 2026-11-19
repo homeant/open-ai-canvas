@@ -5,7 +5,7 @@ import (
 	"math"
 )
 
-var previsShotObjectFields = []string{"visible", "transform", "pose", "keyframes", "boneOverrides", "boneTracks", "motions", "motionPath", "motionClips", "activeMotionClipId"}
+var previsShotObjectFields = []string{"visible", "transform", "pose", "keyframes", "boneOverrides", "boneTracks", "contactConstraints", "motions", "motionPath", "motionClips", "activeMotionClipId"}
 
 func previsSceneForShot(scene map[string]any, shotID string) map[string]any {
 	shot, ok := findPrevisShot(scene, shotID)
@@ -55,7 +55,9 @@ func applyPrevisShotObjectPatch(scene map[string]any, operation cloudAgentPrevis
 	switch operation.Type {
 	case "object_update", "object_keyframe_upsert", "object_keyframe_remove", "object_motion_path_set", "object_motion_path_clear", "actor_motion_add", "actor_motion_remove":
 	default:
-		return cloudAgentApprovalPreviewItem{}, BadAuthRequest("shotId 仅用于对象姿态、变换和动画操作")
+		if !previsRigOperation(operation.Type) {
+			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("shotId 仅用于对象姿态、变换、骨骼和接触约束操作")
+		}
 	}
 	raw, err := json.Marshal(operation)
 	if err != nil {
@@ -70,7 +72,7 @@ func applyPrevisShotObjectPatch(scene map[string]any, operation cloudAgentPrevis
 		allowed[key] = true
 	}
 	for key := range fields {
-		if !allowed[key] {
+		if !allowed[key] && !previsRigOperation(operation.Type) {
 			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("镜头内对象操作不支持字段：" + key)
 		}
 	}
@@ -92,7 +94,12 @@ func applyPrevisShotObjectPatch(scene map[string]any, operation cloudAgentPrevis
 	}
 	virtual := map[string]any{"objects": []map[string]any{object}, "shots": []map[string]any{shot}, "activeShotId": operation.ShotID}
 	operation.ShotID = ""
-	preview, err := cloudAgentPrevisApplyPatchOperation(virtual, operation, index)
+	var preview cloudAgentApprovalPreviewItem
+	if previsRigOperation(operation.Type) {
+		preview, err = applyPrevisRigPatch(scene, object, shot, operation)
+	} else {
+		preview, err = cloudAgentPrevisApplyPatchOperation(virtual, operation, index)
+	}
 	if err != nil {
 		return cloudAgentApprovalPreviewItem{}, err
 	}
@@ -147,7 +154,7 @@ func validatePrevisObjectTrack(object map[string]any, duration float64) error {
 			}
 		}
 	}
-	return nil
+	return validatePrevisRigTracks(object, duration)
 }
 
 func previsShotEndpoint(object map[string]any, time float64, last bool) map[string]any {
@@ -165,7 +172,21 @@ func previsShotEndpoint(object map[string]any, time float64, last bool) map[stri
 			pose = frame["pose"]
 		}
 	}
-	return map[string]any{"time": time, "transform": transform, "pose": pose, "visible": boolValue(object["visible"], true)}
+	bones := map[string]any{}
+	for key, value := range previsMapSafe(object["boneOverrides"]) {
+		bones[key] = value
+	}
+	for _, track := range creationMaps(object["boneTracks"]) {
+		frames := creationMaps(track["keyframes"])
+		if len(frames) > 0 {
+			index := 0
+			if last {
+				index = len(frames) - 1
+			}
+			bones[stringValue(track["bone"])] = frames[index]["rotation"]
+		}
+	}
+	return map[string]any{"time": time, "transform": transform, "pose": pose, "boneRotations": bones, "visible": boolValue(object["visible"], true)}
 }
 
 func previsShotFrames(scene, shot map[string]any, selected map[string]bool) []map[string]any {
@@ -176,7 +197,7 @@ func previsShotFrames(scene, shot map[string]any, selected map[string]bool) []ma
 			continue
 		}
 		object := previsShotObject(base, shot)
-		items = append(items, map[string]any{"objectId": id, "shotId": shot["id"], "keyframes": creationMaps(object["keyframes"]), "boneTracks": creationMaps(object["boneTracks"]), "boneOverrides": object["boneOverrides"], "firstFrame": previsShotEndpoint(object, 0, false), "lastFrame": previsShotEndpoint(object, numberValue(shot["duration"], 5), true)})
+		items = append(items, map[string]any{"objectId": id, "shotId": shot["id"], "keyframes": creationMaps(object["keyframes"]), "boneTracks": creationMaps(object["boneTracks"]), "boneOverrides": object["boneOverrides"], "boneRotationSpace": "local_xyzw", "contactConstraints": creationMaps(object["contactConstraints"]), "firstFrame": previsShotEndpoint(object, 0, false), "lastFrame": previsShotEndpoint(object, numberValue(shot["duration"], 5), true)})
 	}
 	return items
 }

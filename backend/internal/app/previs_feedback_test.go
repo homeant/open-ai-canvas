@@ -121,7 +121,7 @@ func TestExternalPrevisSampleFramesIntegration(t *testing.T) {
 		t.Fatalf("sample frames: %#v", result)
 	}
 	for index, frame := range result.Frames {
-		if frame.Time != req.Times[index] || len(frame.PNG) < 100 || frame.Diagnostics["method"] != "rendered_world_aabb" || frame.Diagnostics["ikConstraintsSupported"] != false {
+		if frame.Time != req.Times[index] || len(frame.PNG) < 100 || frame.Diagnostics["method"] != "rendered_world_aabb" || frame.Diagnostics["ikConstraintsSupported"] != true || frame.Diagnostics["fullBodyIK"] != false {
 			t.Fatalf("frame %d: invalid image or diagnostics", index)
 		}
 	}

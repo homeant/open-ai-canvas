@@ -47,22 +47,30 @@ type cloudAgentPrevisApplyPatchArgs struct {
 // cloudAgentPrevisPatchOperation is deliberately a closed semantic contract.
 // It has no generic path, metadata, URL, storage key or raw scene field.
 type cloudAgentPrevisPatchOperation struct {
-	Type          string  `json:"type"`
-	ID            string  `json:"id"`
-	Name          *string `json:"name,omitempty"`
-	Title         *string `json:"title,omitempty"`
-	Kind          string  `json:"kind,omitempty"`
-	ResourceID    *string `json:"resourceId,omitempty"`
-	GLTFNodeIndex *int    `json:"gltfNodeIndex,omitempty"`
-	DramaCastID   *string `json:"dramaCastId,omitempty"`
-	Primitive     string  `json:"primitive,omitempty"`
-	Archetype     string  `json:"archetype,omitempty"` // adult/child/elderly/man/woman/monster
-	Color         *string `json:"color,omitempty"`
-	ParentID      *string `json:"parentId,omitempty"`
-	Visible       *bool   `json:"visible,omitempty"`
-	Pose          string  `json:"pose,omitempty"`
-	Motion        string  `json:"motion,omitempty"`
-	ShotID        string  `json:"shotId,omitempty"`
+	Type            string     `json:"type"`
+	ID              string     `json:"id"`
+	Name            *string    `json:"name,omitempty"`
+	Title           *string    `json:"title,omitempty"`
+	Kind            string     `json:"kind,omitempty"`
+	ResourceID      *string    `json:"resourceId,omitempty"`
+	GLTFNodeIndex   *int       `json:"gltfNodeIndex,omitempty"`
+	DramaCastID     *string    `json:"dramaCastId,omitempty"`
+	Primitive       string     `json:"primitive,omitempty"`
+	Archetype       string     `json:"archetype,omitempty"` // adult/child/elderly/man/woman/monster
+	Color           *string    `json:"color,omitempty"`
+	ParentID        *string    `json:"parentId,omitempty"`
+	Visible         *bool      `json:"visible,omitempty"`
+	Pose            string     `json:"pose,omitempty"`
+	Motion          string     `json:"motion,omitempty"`
+	ShotID          string     `json:"shotId,omitempty"`
+	Bone            string     `json:"bone,omitempty"`
+	Quaternion      *[]float64 `json:"quaternion,omitempty"`
+	ConstraintID    string     `json:"constraintId,omitempty"`
+	Effector        string     `json:"effector,omitempty"`
+	StartTime       *float64   `json:"startTime,omitempty"`
+	EndTime         *float64   `json:"endTime,omitempty"`
+	Tolerance       *float64   `json:"tolerance,omitempty"`
+	SurfaceObjectID *string    `json:"surfaceObjectId,omitempty"`
 
 	CharacterAssetID   *string `json:"characterAssetId,omitempty"`
 	CharacterVersionID *string `json:"characterVersionId,omitempty"`
@@ -194,6 +202,11 @@ func cloudAgentPrevisPatchOperationSchema() map[string]any {
 		"gridVisible":          map[string]any{"type": "boolean"},
 		"activeShotId":         map[string]any{"type": "string", "maxLength": 80},
 	}
+	for key, value := range previsRigSchemaProperties() {
+		properties[key] = value
+	}
+	typeSchema := properties["type"].(map[string]any)
+	typeSchema["enum"] = append(typeSchema["enum"].([]string), previsRigOperations...)
 	return map[string]any{"type": "object", "properties": properties, "required": []string{"type", "id"}, "additionalProperties": false}
 }
 
@@ -626,6 +639,11 @@ func cloudAgentPrevisValidateScene(scene map[string]any) error {
 			seenStates[objectID] = true
 			if err := validatePrevisObjectTrack(previsShotObject(objectByID[objectID], shot), numberValue(shot["duration"], 5)); err != nil {
 				return err
+			}
+			for _, constraint := range creationMaps(previsShotObject(objectByID[objectID], shot)["contactConstraints"]) {
+				if surface := stringValue(constraint["surfaceObjectId"]); surface != "" && (objectByID[surface] == nil || surface == objectID) {
+					return BadAuthRequest("接触约束引用的面对象不存在或为自身")
+				}
 			}
 			if transform, ok := state["transform"]; ok {
 				if err := cloudAgentPrevisValidateTransform(transform, "镜头对象状态"); err != nil {
@@ -1726,6 +1744,9 @@ func cloudAgentPrevisFindByID(items []map[string]any, id string) map[string]any 
 func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAgentPrevisPatchOperation, index int) (cloudAgentApprovalPreviewItem, error) {
 	if operation.ShotID != "" {
 		return applyPrevisShotObjectPatch(scene, operation, index)
+	}
+	if previsRigOperation(operation.Type) {
+		return cloudAgentApprovalPreviewItem{}, BadAuthRequest("骨骼与接触约束操作必须明确提供 shotId")
 	}
 	if err := cloudAgentPrevisValidateText(operation.Type, fmt.Sprintf("operations[%d].type", index), 40, true); err != nil {
 		return cloudAgentApprovalPreviewItem{}, err

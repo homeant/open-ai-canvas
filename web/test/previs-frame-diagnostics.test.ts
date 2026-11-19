@@ -24,7 +24,8 @@ test("逐帧诊断按世界坐标报告重叠，且不把包围盒相交当成�
     const result = inspectPrevisFrame(world, scene);
     expect(result.warnings.some((item) => item.code === "possible_object_overlap")).toBe(true);
     expect(result.collisionConfirmed).toBe(false);
-    expect(result.ikConstraintsSupported).toBe(false);
+    expect(result.ikConstraintsSupported).toBe(true);
+    expect(result.fullBodyIK).toBe(false);
     bedRoot.position.x = 10;
     expect(inspectPrevisFrame(world, scene).warnings.some((item) => item.code === "possible_object_overlap")).toBe(false);
     geometry.dispose();
