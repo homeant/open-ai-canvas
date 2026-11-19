@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -132,10 +133,12 @@ func (s *Service) EditDramaSegmentPrompt(userID, projectID, episodeID string, in
 
 type DramaSegmentVideoVersion struct {
 	DramaTakeView
-	Width      int    `json:"width"`
-	Height     int    `json:"height"`
-	DurationMs int64  `json:"durationMs"`
-	MimeType   string `json:"mimeType"`
+	QAStatus   string           `json:"qaStatus"`
+	AudioPlans []map[string]any `json:"audioPlans"`
+	Width      int              `json:"width"`
+	Height     int              `json:"height"`
+	DurationMs int64            `json:"durationMs"`
+	MimeType   string           `json:"mimeType"`
 }
 
 type DramaSegmentVersionsResult struct {
@@ -155,8 +158,31 @@ func (s *Service) DramaSegmentVideoVersions(userID, projectID, episodeID string,
 		return DramaSegmentVersionsResult{}, err
 	}
 	result := DramaSegmentVersionsResult{SegmentIndex: index, Revision: detail.Segment.Revision, CurrentResourceID: detail.Segment.VideoResourceID, Versions: []DramaSegmentVideoVersion{}}
+	target, err := s.dramaAudioTarget(userID, DramaAudioScope{DramaID: projectID, EpisodeID: episodeID, SegmentIndex: index})
+	if err != nil {
+		return DramaSegmentVersionsResult{}, err
+	}
+	audioVersions, err := s.repo.DramaAudioVersions(projectID, detail.Segment.ID, 0)
+	if err != nil {
+		return DramaSegmentVersionsResult{}, err
+	}
+	plans := map[string][]map[string]any{}
+	for _, row := range audioVersions {
+		view := &DramaAudioVersionView{DramaAudioVersion: row}
+		if err := json.Unmarshal([]byte(row.TracksJSON), &view.Tracks); err != nil {
+			return DramaSegmentVersionsResult{}, err
+		}
+		qa, err := s.dramaAudioQA(view, target)
+		if err != nil {
+			return DramaSegmentVersionsResult{}, err
+		}
+		plans[row.VideoTakeID] = append(plans[row.VideoTakeID], map[string]any{"audioRevision": row.Revision, "audioVersionId": row.ID, "qaStatus": qa["status"], "accepted": qa["accepted"]})
+	}
 	for _, take := range listed["takes"].([]DramaTakeView) {
-		version := DramaSegmentVideoVersion{DramaTakeView: take}
+		version := DramaSegmentVideoVersion{DramaTakeView: take, QAStatus: "unreviewed", AudioPlans: append([]map[string]any{}, plans[take.ID]...)}
+		if len(version.AudioPlans) > 0 {
+			version.QAStatus = version.AudioPlans[0]["qaStatus"].(string)
+		}
 		resource, err := s.repo.ResourceForUser(userID, take.ResourceID)
 		if err == nil {
 			version.Width, version.Height, version.MimeType = resource.Width, resource.Height, resource.MimeType

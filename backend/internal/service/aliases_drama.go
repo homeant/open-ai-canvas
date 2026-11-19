@@ -4,6 +4,8 @@ import "yingce/backend/internal/app"
 
 type (
 	DramaAudioScope                 = app.DramaAudioScope
+	DramaAudioQARequest             = app.DramaAudioQARequest
+	InspectDramaAudioRequest        = app.InspectDramaAudioRequest
 	SaveDramaAudioRequest           = app.SaveDramaAudioRequest
 	MutateDramaAudioCueRequest      = app.MutateDramaAudioCueRequest
 	GenerateDramaMCPRequest         = app.GenerateDramaMCPRequest

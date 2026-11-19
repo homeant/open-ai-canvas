@@ -12,6 +12,9 @@ Schema 110 新增 `drama_audio_versions` 和 `drama_audio_resource_links`。音�
 资源链接表按 `version_id + resource_id` 唯一，保护所有历史版本引用的视频与音频，素材删除及孤儿清理均检查；附加与删除共享资源行锁。作品／剧集删除同步清理音轨与链接。重新改编后旧音轨保留在旧段 ID 下，不会自动迁到新镜头或变成已验收。
 
 写入复用剧集事务与幂等回执。TTS 准入、费用预留和新音轨版本同事务提交，重复请求不会创建第二个任务；并按作品锁检查剩余预算。计划不修改 `drama_segments.video_resource_id`，不覆盖正式视频。
+
+Schema 111 新增 `drama_audio_checks`，只追加保存明确音轨版本、片段、检查层、状态、方法、认证检查人、实际资源和完整文件 SHA-256，以及转写／时间对齐或人工观察证据 JSON。ASR、内容、画面、人物声源、嘴部、音效和最终验收独立记录。最终验收绑定当时检查 ID 集合，后续新证据使旧最终结论失效；分镜变化和新音轨不继承验收。作品／剧集删除同步清理检查。SQLite → PostgreSQL 复制清单同步登记。详见 [后期音轨与验收](/docs/backend/drama-audio-mcp)。
+
 ## SQLite 并发写入与任务领取
 
 默认 SQLite DSN 在事务开始时使用 immediate 写锁，配合既有 5 秒 busy timeout 等待并发写事务，避免先读后写时无法升级锁。自定义 DSN 仍由部署配置控制。SQLite worker 用单条条件更新和 `RETURNING` 原子领取最早的可运行任务；PostgreSQL 继续使用行锁。上游已受理任务回查时保留原 stage 与 progress。

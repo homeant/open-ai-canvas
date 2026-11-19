@@ -22,7 +22,12 @@ func TestDramaAudioMigrationPreservesVideoAndScript(t *testing.T) {
 	if err := db.Create(&shot).Error; err != nil {
 		t.Fatal(err)
 	}
-	step := schemaMigrations[len(schemaMigrations)-1]
+	var step migration
+	for _, candidate := range schemaMigrations {
+		if candidate.version == 110 {
+			step = candidate
+		}
+	}
 	if step.version != 110 {
 		t.Fatal("expected audio migration")
 	}

@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"yingce/backend/internal/production"
 )
 
 // 本地 whisper.cpp HTTP 服务客户端。配置项 CANVAS_WHISPER_BASE_URL
@@ -20,9 +22,10 @@ import (
 // 语音数据不出本机，未配置该地址时任务在进入转写前明确失败。
 
 type timelineTranscriptionSegment struct {
-	StartMs int64  `json:"startMs"`
-	EndMs   int64  `json:"endMs"`
-	Text    string `json:"text"`
+	StartMs int64                  `json:"startMs"`
+	EndMs   int64                  `json:"endMs"`
+	Text    string                 `json:"text"`
+	Words   []production.AudioWord `json:"words,omitempty"`
 }
 
 type timelineTranscriptionResult struct {
@@ -35,6 +38,11 @@ type whisperSegment struct {
 	Start float64 `json:"start"`
 	End   float64 `json:"end"`
 	Text  string  `json:"text"`
+	Words []struct {
+		Start float64 `json:"start"`
+		End   float64 `json:"end"`
+		Word  string  `json:"word"`
+	} `json:"words"`
 }
 
 type whisperVerboseJSON struct {
@@ -75,6 +83,11 @@ func (c *whisperClient) transcribe(ctx context.Context, wavPath string, language
 	}
 	if err := writer.WriteField("response_format", "verbose_json"); err != nil {
 		return nil, "", err
+	}
+	for _, granularity := range []string{"segment", "word"} {
+		if err := writer.WriteField("timestamp_granularities[]", granularity); err != nil {
+			return nil, "", err
+		}
 	}
 	if strings.TrimSpace(language) != "" {
 		if err := writer.WriteField("language", strings.TrimSpace(language)); err != nil {
@@ -125,10 +138,15 @@ func decodeWhisperVerboseJSON(payload []byte) ([]timelineTranscriptionSegment, s
 		if strings.TrimSpace(seg.Text) == "" {
 			continue
 		}
+		words := []production.AudioWord{}
+		for _, word := range seg.Words {
+			words = append(words, production.AudioWord{StartMs: int64(math.Round(word.Start * 1000)), EndMs: int64(math.Round(word.End * 1000)), Text: word.Word})
+		}
 		segments = append(segments, timelineTranscriptionSegment{
 			StartMs: int64(math.Round(seg.Start * 1000)),
 			EndMs:   int64(math.Round(seg.End * 1000)),
 			Text:    strings.TrimSpace(seg.Text),
+			Words:   words,
 		})
 	}
 	return segments, parsed.Language, nil
