@@ -251,6 +251,12 @@ func (r *Repository) DeleteDramaEpisode(projectID, episodeID string, releaseChap
 			}
 		}
 		segments := tx.Model(&model.DramaSegment{}).Select("id").Where("episode_id = ?", episode.ID)
+		if err := tx.Where("project_id = ? AND episode_id = ? AND kind = ?", projectID, episode.ID, "shot_media").Delete(&model.DramaTake{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ? AND episode_id = ?", projectID, episode.ID).Delete(&model.DramaShotMediaReview{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("project_id = ? AND segment_id IN (?)", projectID, segments).Delete(&model.DramaSegmentPromptRevision{}).Error; err != nil {
 			return err
 		}
@@ -709,7 +715,7 @@ func (r *Repository) CancelQueuedDramaJobs(projectID string, filter func(*gorm.D
 
 func (r *Repository) DeleteDramaProductionData(projectID string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		for _, entity := range []any{&model.DramaAudioCheck{}, &model.DramaAudioResourceLink{}, &model.DramaAudioVersion{}, &model.DramaMutationReceipt{}, &model.DramaJob{}, &model.DramaTake{}, &model.DramaSegmentPromptRevision{}, &model.DramaSegment{}, &model.DramaShot{}, &model.DramaEpisode{}, &model.DramaCast{}, &model.DramaProduction{}} {
+		for _, entity := range []any{&model.DramaShotMediaReview{}, &model.DramaAudioCheck{}, &model.DramaAudioResourceLink{}, &model.DramaAudioVersion{}, &model.DramaMutationReceipt{}, &model.DramaJob{}, &model.DramaTake{}, &model.DramaSegmentPromptRevision{}, &model.DramaSegment{}, &model.DramaShot{}, &model.DramaEpisode{}, &model.DramaCast{}, &model.DramaProduction{}} {
 			if err := tx.Where("project_id = ?", projectID).Delete(entity).Error; err != nil {
 				return err
 			}

@@ -173,6 +173,7 @@ func Models() []any {
 		&model.DramaMutationReceipt{},
 		&model.DramaAudioVersion{},
 		&model.DramaAudioCheck{},
+		&model.DramaShotMediaReview{},
 		&model.DramaAudioResourceLink{},
 		&model.DramaJob{},
 		&model.EcommerceRound{},

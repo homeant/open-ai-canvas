@@ -133,12 +133,14 @@ func (s *Service) EditDramaSegmentPrompt(userID, projectID, episodeID string, in
 
 type DramaSegmentVideoVersion struct {
 	DramaTakeView
-	QAStatus   string           `json:"qaStatus"`
-	AudioPlans []map[string]any `json:"audioPlans"`
-	Width      int              `json:"width"`
-	Height     int              `json:"height"`
-	DurationMs int64            `json:"durationMs"`
-	MimeType   string           `json:"mimeType"`
+	QAStatus      string           `json:"qaStatus"`
+	VisualQA      map[string]any   `json:"visualQa"`
+	AudioQAStatus string           `json:"audioQaStatus"`
+	AudioPlans    []map[string]any `json:"audioPlans"`
+	Width         int              `json:"width"`
+	Height        int              `json:"height"`
+	DurationMs    int64            `json:"durationMs"`
+	MimeType      string           `json:"mimeType"`
 }
 
 type DramaSegmentVersionsResult struct {
@@ -182,6 +184,34 @@ func (s *Service) DramaSegmentVideoVersions(userID, projectID, episodeID string,
 		version := DramaSegmentVideoVersion{DramaTakeView: take, QAStatus: "unreviewed", AudioPlans: append([]map[string]any{}, plans[take.ID]...)}
 		if len(version.AudioPlans) > 0 {
 			version.QAStatus = version.AudioPlans[0]["qaStatus"].(string)
+		}
+		version.AudioQAStatus = version.QAStatus
+		visual, err := s.dramaVisualQA(projectID, take.ID, "", "", false)
+		if err != nil {
+			return DramaSegmentVersionsResult{}, err
+		}
+		version.VisualQA = visual
+		latest := map[string]model.DramaShotMediaReview{}
+		for _, review := range visual["reviews"].([]model.DramaShotMediaReview) {
+			key := review.ShotID + ":" + review.Layer
+			if _, ok := latest[key]; !ok {
+				latest[key] = review
+			}
+		}
+		complete := take.ShotRevision != "" && take.ShotRevision == detail.Segment.ShotRevision && len(detail.Shots) > 0
+		for _, shot := range detail.Shots {
+			for _, layer := range []string{"picture", "text", "continuity"} {
+				review := latest[shot.ID+":"+layer]
+				complete = complete && review.Status == "approved" && review.ShotRevision == dramaShotRevision([]model.DramaShot{shot}, -1)
+			}
+		}
+		if visual["status"] != "rejected" && complete {
+			visual["status"], visual["acceptedForVideo"] = "approved", true
+		}
+		if visual["status"] == "rejected" {
+			version.QAStatus = "rejected"
+		} else if version.QAStatus == "approved" && visual["status"] != "approved" {
+			version.QAStatus = "unreviewed"
 		}
 		resource, err := s.repo.ResourceForUser(userID, take.ResourceID)
 		if err == nil {

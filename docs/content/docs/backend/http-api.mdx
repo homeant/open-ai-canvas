@@ -5,6 +5,10 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## MCP 镜头媒体输入与视觉 QA
+
+新增 `list_canvas_image_candidates`、`bind_shot_reference_images`（`dryRun:true` 为只读真实输入预演）、`list_shot_media_versions`、`register_shot_media_version` 与 `review_shot_media_version`。明确图片按稳定镜头和资源绑定，关键图未送模时阻塞；登记候选不采用正式视频。视觉验收按画面／文字／物理连续性分别追加，静图不当作动态连续性通过。详见 [镜头图片与视觉版本 QA](/docs/backend/drama-shot-media-mcp)。
+
 ## MCP 镜头与段级参考绑定
 
 `edit_episode_shots` 使用 `expectedEpisodeRevision + shotId + idempotencyKey` 原子修改 `scene/sceneCastId/castIds/propIds/lookCastIds`，校验作品归属、设定种类及造型所属角色；改绑定会使受影响段提示词待复核。`edit_segment_references` 使用段版本和分镜版本管理自定义图片选择、恢复自动收集及清空额外图片。只改动作文字不会重绑图片。

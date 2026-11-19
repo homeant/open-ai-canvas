@@ -59,6 +59,9 @@ func (r *Repository) DramaMutation(projectID, episodeID, receiptID, hash string,
 }
 
 func (r *Repository) ReplaceDramaEditedShots(episode model.DramaEpisode, shots []model.DramaShot, affected map[int]bool) error {
+	if err := r.lockDramaShotImageResources(episode.ProjectID, shots); err != nil {
+		return err
+	}
 	before, err := r.DramaShots(episode.ID)
 	if err != nil {
 		return err

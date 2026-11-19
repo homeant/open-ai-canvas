@@ -74,6 +74,15 @@ func (r *Repository) DeleteDetachedResources(resources []model.Resource, deletio
 		if len(logReferences) > 0 {
 			return ErrResourceCleanupStillReferenced
 		}
+		for userID := range documentsByUser {
+			refs, err := New(tx).DramaResourceReferences(userID, resourceIDs)
+			if err != nil {
+				return err
+			}
+			if len(refs) > 0 {
+				return ErrResourceCleanupStillReferenced
+			}
+		}
 		for _, check := range []struct {
 			model any
 			query string
