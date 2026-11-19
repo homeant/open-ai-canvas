@@ -49,7 +49,7 @@ func (s *Service) cloudAgentModelList(userID string, intent *ModelRequestIntent)
 					}
 				}
 				item := map[string]any{"name": m.DisplayName, "capability": m.Capability, "selection": map[string]any{"channelId": channel.ID, "channelModelKey": m.ModelKey}, "priceLabel": m.PriceLabel, "priceTiers": m.PriceTiers, "options": m.CapabilityConfig, "defaults": m.DefaultOptions}
-				if m.Protocol == model.ChannelInterfaceType("metaso-h3") && strings.HasPrefix(strings.ToLower(m.ModelKey), "minimax-h3") {
+				if hasNativeVideoAudio(m.Protocol, m.ModelKey) {
 					item["audioOutput"] = map[string]any{"mode": "native", "supported": true, "toggleSupported": false, "guidance": "H3 与视频同步生成原生音轨；generateAudio.supported=false 只表示没有单独开关，不表示视频不能出声。需要现场声音时在 prompt 写明，不要传 videoGenerateAudio。"}
 				}
 				if m.Protocol == model.ChannelInterfaceEvoLinkQwenAudioTTS {

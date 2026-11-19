@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"strconv"
 	"strings"
 
 	"yingce/backend/internal/model"
@@ -53,8 +52,7 @@ func (s *Service) PreviewDramaSegmentGeneration(userID, projectID, episodeID str
 	}
 	segment := detail.Segment
 	request := segment.Request
-	config := map[string]any{"videoSeconds": itoa(request.Seconds), "videoGenerateAudio": strconv.FormatBool(request.GenerateAudio)}
-	dramaVideoScreen{Size: request.Size, Resolution: request.Resolution}.apply(config)
+	config := dramaSegmentGenerationConfig(request)
 	images := []any{}
 	sentImages := []map[string]any{}
 	textOnlyReferences := []DramaSegmentReference{}
@@ -124,5 +122,5 @@ func (s *Service) PreviewDramaSegmentGeneration(userID, projectID, episodeID str
 			needsVoice = true
 		}
 	}
-	return map[string]any{"segmentIndex": index, "segmentRevision": segment.Revision, "shotRevision": segment.ShotRevision, "episodeRevision": detail.EpisodeRevision, "referenceMode": segment.ReferenceMode, "shotBindings": shotBindings, "sentReferenceImages": sentImages, "textOnlyReferences": textOnlyReferences, "promptRevision": segment.PromptRevision, "model": segment.VideoModel, "request": request, "fullPrompt": strings.TrimSpace(request.Header + "\n\n" + segment.VideoPrompt), "intent": intent, "quote": quote, "unquotableReason": quoteReason, "blockers": blockers, "canSubmit": len(blockers) == 0, "sound": map[string]any{"modelSupportsAudioGeneration": request.GenerateAudio, "speechGenerationGuaranteed": false, "hasAudioTrack": nil, "hasSpeech": nil, "usableDialogueAudio": "unverified", "needsPostDubbing": nil, "postDubbingRecommended": needsVoice && !request.GenerateAudio, "source": "model_capability_contract", "note": "模型能力不证明文件有音轨或有人声；音轨存在不代表台词正确或独白合格，是否需要后期配音须检查实际产物。"}}, nil
+	return map[string]any{"segmentIndex": index, "segmentRevision": segment.Revision, "shotRevision": segment.ShotRevision, "episodeRevision": detail.EpisodeRevision, "referenceMode": segment.ReferenceMode, "shotBindings": shotBindings, "sentReferenceImages": sentImages, "textOnlyReferences": textOnlyReferences, "promptRevision": segment.PromptRevision, "model": segment.VideoModel, "request": request, "fullPrompt": strings.TrimSpace(request.Header + "\n\n" + segment.VideoPrompt), "intent": intent, "quote": quote, "unquotableReason": quoteReason, "blockers": blockers, "canSubmit": len(blockers) == 0, "sound": dramaSegmentSoundContract(request, needsVoice)}, nil
 }

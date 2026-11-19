@@ -7,6 +7,8 @@ description: 段与镜头时间窗、配音任务、实际音轨转写和版本�
 
 后期音轨是独立的版本，不修改原分镜、当前段视频或成片。先用 `get_segment_audio` 读取 `shotWindows` 和 `shotRevision`，再用 `save_segment_audio` 保存完整 `tracks`。时间是相对本段的毫秒，不直接沿用旧视频提示词的时间码；分镜时长或对白修改后必须重新核对。首次 `expectedAudioRevision=0`，随后使用最新音轨版本，始终提供分镜指纹和幂等键。
 
+`preview_segment_generation` 的 `sound.audioOutputMode` 将 `native/switch/unspecified` 分开。H3 原生生成音轨，没有独立开关；`request.generateAudio=false` 不表示无声，实际提交不发送 `videoGenerateAudio`。未声明开关的其他模型保持输出能力未知，不据此宣称静音或保证有人声。
+
 ## 片段与声源
 
 每个片段有唯一 `id`、本段 `shotId`、`startMs/endMs`、`sourceOffsetMs`、文本或音效说明。时间窗必须在镜头内，同一对白的语音片段不得重叠。预检将按时间顺序核对语音片段是否完整覆盖分镜台词；标点和空格不影响文本比较，不做模糊匹配。

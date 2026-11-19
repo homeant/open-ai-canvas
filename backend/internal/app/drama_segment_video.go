@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -134,6 +133,7 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 	}
 	screen := profile.screen(settings.AspectRatio, profile.effectiveResolution(settings.VideoResolution))
 	request := DramaSegmentRequest{Seconds: production.SnapVideoSeconds(draft.view.DurationMs, profile.Durations), MaxVideoSeconds: profile.maxSeconds(), AspectRatio: settings.AspectRatio, Size: screen.Size, Resolution: screen.Resolution, PromptMaxChars: profile.PromptMaxChars, GenerateAudio: profile.GenerateAudio, References: []DramaSegmentReference{}, AudioReferences: []DramaSegmentAudioReference{}, ModelMaxAudios: profile.MaxAudios}
+	request.AudioOutputMode = profile.AudioOutputMode
 	if draft.view.DurationMs > int64(request.MaxVideoSeconds)*1000 {
 		return request, nil, nil, errors.New("剧情段超过所选视频模型的时长上限，请调整分镜时长或重新改编")
 	}
@@ -471,9 +471,7 @@ func (r *dramaRun) submitSegmentVideo(job *model.DramaJob) (*model.Task, bool, e
 		if previous != nil {
 			metadata["videoStartFrameNodeId"] = "first-frame"
 		}
-		// 画面参数与声音开关取自预演：比例或分辨率标签按模型能力合同换算，不出声的模型显式关闭声音。
-		config := map[string]any{"videoSeconds": itoa(request.Seconds), "videoGenerateAudio": strconv.FormatBool(request.GenerateAudio)}
-		dramaVideoScreen{Size: request.Size, Resolution: request.Resolution}.apply(config)
+		config := dramaSegmentGenerationConfig(request)
 		prompt := strings.TrimSpace(request.Header + "\n\n" + firstNonEmpty(segment.VideoPromptOverride, segment.VideoPrompt))
 		if chars := utf8.RuneCountInString(prompt); request.PromptMaxChars > 0 && chars > request.PromptMaxChars {
 			if strings.TrimSpace(segment.VideoPromptOverride) != "" {

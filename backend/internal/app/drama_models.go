@@ -347,6 +347,7 @@ type dramaVideoProfile struct {
 	MaxAudios       int
 	MaxAudioSeconds int
 	GenerateAudio   bool
+	AudioOutputMode string
 	// PromptMaxChars 是提示词字符上限（含系统追加的参考图说明），与任务准入同一份能力合同；0 表示不限。
 	PromptMaxChars int
 	video          *VideoCapabilityConfig
@@ -422,6 +423,7 @@ func dramaModelUnavailable(capability string, choice DramaModelChoice, reason st
 
 func (s *Service) dramaVideoProfile(choice DramaModelChoice) (dramaVideoProfile, error) {
 	var capability *ModelCapabilityConfig
+	nativeAudio := false
 	if choice.LogicalModelID != "" {
 		// 只读取能力画像；用户授权在任务准入时按分组校验。
 		routed, err := s.resolveDramaLogicalModel(nil, choice.LogicalModelID, "video")
@@ -433,6 +435,7 @@ func (s *Service) dramaVideoProfile(choice DramaModelChoice) (dramaVideoProfile,
 		}
 		var parseErr error
 		capability, parseErr = normalizedChannelModelCapability(&routed.ChannelModel, s.protocolRegistry())
+		nativeAudio = hasNativeVideoAudio(routed.ChannelModel.Protocol, routed.ChannelModel.ModelKey)
 		if parseErr != nil {
 			return dramaVideoProfile{}, parseErr
 		}
@@ -445,6 +448,7 @@ func (s *Service) dramaVideoProfile(choice DramaModelChoice) (dramaVideoProfile,
 			return dramaVideoProfile{}, err
 		}
 		capability, err = normalizedChannelModelCapability(row, s.protocolRegistry())
+		nativeAudio = hasNativeVideoAudio(row.Protocol, row.ModelKey)
 		if err != nil {
 			return dramaVideoProfile{}, err
 		}
@@ -456,8 +460,14 @@ func (s *Service) dramaVideoProfile(choice DramaModelChoice) (dramaVideoProfile,
 	}
 	video := capability.Video
 	options := dramaDurationOptions(video.Duration)
-	// 不声明同步生成声音的模型也可以用：段视频没有对白与音效，由用户在选模型时自行取舍。
+	// An absent audio switch does not establish whether a provider emits a native audio track.
 	profile := dramaVideoProfile{Durations: options, Operations: video.Operations, MaxImages: video.References.MaxImages, MinImages: max(video.References.MinImages, 0), MaxAudios: max(video.References.MaxAudios, 0), MaxAudioSeconds: max(video.References.MaxAudioDuration, 0), GenerateAudio: video.GenerateAudio.Supported, PromptMaxChars: max(video.References.PromptMaxChars, 0), video: video}
+	profile.AudioOutputMode = "unspecified"
+	if nativeAudio {
+		profile.AudioOutputMode = "native"
+	} else if profile.GenerateAudio {
+		profile.AudioOutputMode = "switch"
+	}
 	if profile.maxSeconds() <= 0 {
 		return profile, errors.New("未声明可生成时长，无法按剧情段切分")
 	}
@@ -549,7 +559,7 @@ func (s *Service) EstimateDrama(userID string, req DramaEstimateRequest) (DramaE
 	}
 	operation, inputs := dramaSegmentOperation(settings, profile)
 	// 与剧情段提交时的画面参数和声音开关一致，价格档可能按分辨率与是否出声区分。
-	videoOptions := map[string]any{"videoSeconds": itoa(production.SnapVideoSeconds(int64(segmentSeconds)*1000, profile.Durations)), "videoGenerateAudio": strconv.FormatBool(profile.GenerateAudio)}
+	videoOptions := dramaSegmentGenerationConfig(DramaSegmentRequest{Seconds: production.SnapVideoSeconds(int64(segmentSeconds)*1000, profile.Durations), GenerateAudio: profile.GenerateAudio, AudioOutputMode: profile.AudioOutputMode})
 	if screen := profile.screen(settings.AspectRatio, profile.effectiveResolution(settings.VideoResolution)); screen.Issue == "" {
 		screen.apply(videoOptions)
 	}
@@ -984,8 +994,9 @@ func (s *Service) dramaModelOption(choice DramaModelChoice, capability, label, p
 			option.MinReferenceImages = profile.MinImages
 			option.TailFrameChain = profile.supports("image_to_video")
 			option.VideoRatios = profile.ratios()
-			audio := profile.GenerateAudio
+			audio := profile.GenerateAudio || profile.AudioOutputMode == "native"
 			option.GenerateAudio = &audio
+			option.AudioOutputMode = profile.AudioOutputMode
 			option.VideoResolutions, option.DefaultVideoResolution = dramaVideoResolutionsFor(profile.video)
 		}
 	}
