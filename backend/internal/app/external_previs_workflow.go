@@ -130,5 +130,5 @@ func (s *Service) ValidateExternalPrevisScene(userID string, req ExternalPrevisR
 		}
 	}
 	warnings := previsAnimationWarnings(scene, req.ShotID)
-	return map[string]any{"sceneId": req.SceneID, "snapshotHash": creationHash(scene), "valid": len(issues) == 0, "issues": issues, "validationScope": "structure_and_references", "motionValidated": false, "ikConstraintsSupported": false, "requiresVisualReview": true, "warnings": warnings}, nil
+	return map[string]any{"sceneId": req.SceneID, "snapshotHash": creationHash(scene), "valid": len(issues) == 0, "issues": issues, "validationScope": "structure_and_references", "motionValidated": false, "ikConstraintsSupported": true, "ikScope": "standard_mannequin_position_ccd", "fullBodyIK": false, "jointLimits": false, "requiresVisualReview": true, "warnings": warnings}, nil
 }

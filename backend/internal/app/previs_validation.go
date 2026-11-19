@@ -69,7 +69,7 @@ func previsAnimationWarnings(scene map[string]any, shotID string) []map[string]a
 					continue
 				}
 				start, end := numberValue(previous["time"], 0), numberValue(next["time"], 0)
-				warnings = append(warnings, map[string]any{"code": "root_rotation_not_ik", "shotId": shot["id"], "objectId": object["id"], "startTime": start, "endTime": end, "suggestedSampleTimes": []float64{start, (start + end) / 2, end}, "message": "根节点旋转会带动整个角色，不能保证起身时手撑床面、双脚落地或不穿模；请逐帧取样。当前没有 IK 接触约束求解。"})
+				warnings = append(warnings, map[string]any{"code": "root_rotation_not_ik", "shotId": shot["id"], "objectId": object["id"], "startTime": start, "endTime": end, "suggestedSampleTimes": []float64{start, (start + end) / 2, end}, "message": "根节点翻转不是真实起身求解；标准人偶末端位置约束也不保证关节限位、平衡或不穿模，请检查逐帧姿态和接触误差。"})
 				if len(warnings) >= 64 {
 					return append(warnings, map[string]any{"code": "warning_limit", "message": "仅返回前 64 个风险，请指定 shotId 缩小范围"})
 				}

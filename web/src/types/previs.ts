@@ -151,6 +151,7 @@ export type PrevisCharacterBinding = {
 };
 
 export type PrevisObject = {
+    contactConstraints?: PrevisContactConstraint[];
     id: string;
     name: string;
     kind: PrevisObjectKind;
@@ -214,7 +215,10 @@ export type PrevisLight = {
     castShadow: boolean;
 };
 
-export type PrevisShotObjectState = { objectId: string } & Partial<Pick<PrevisObject, "visible" | "transform" | "pose" | "keyframes" | "boneOverrides" | "boneTracks" | "motions" | "motionClips">> & {
+export type PrevisContactEffector = "leftHand" | "rightHand" | "leftFoot" | "rightFoot";
+export type PrevisContactConstraint = { id: string; effector: PrevisContactEffector; target: PrevisVec3; startTime: number; endTime: number; tolerance: number; surfaceObjectId?: string };
+
+export type PrevisShotObjectState = { objectId: string } & Partial<Pick<PrevisObject, "visible" | "transform" | "pose" | "keyframes" | "boneOverrides" | "boneTracks" | "contactConstraints" | "motions" | "motionClips">> & {
         motionPath?: PrevisMotionPath | null;
         activeMotionClipId?: string | null;
     };

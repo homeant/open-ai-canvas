@@ -60,6 +60,7 @@ import { disposePrevisAdoptionFailure, disposePrevisHelper, disposePrevisModelRe
 import { resolvePrevisActorColor, previsTransformPathLength, finitePrevisTransformKeyframes, interpolatePrevisTransform } from "@/lib/canvas/previs/previs-scene";
 import { resolvePrevisShotObject } from "@/lib/canvas/previs/previs-shot-state";
 import { inspectPrevisFrame } from "@/lib/canvas/previs/previs-frame-diagnostics";
+import { solvePrevisContacts, readPrevisRigState } from "@/lib/canvas/previs/previs-contact-constraints";
 import {
     PREVIS_DEFAULT_VIEW_MODE,
     previsViewFramingKey,
@@ -2011,6 +2012,7 @@ function PrevisMannequinBody({
     onActorRigReady: (rig: PrevisRig, animations: AnimationClip[]) => void;
 }) {
     const invalidate = useThree((state) => state.invalidate);
+    const world = useThree((state) => state.scene);
     const profile = resolvePrevisMannequinProfile(object.archetype || "adult", object.actorProfile);
     const profileKey = previsMannequinProfileKey(object.archetype, profile);
     // 只在体型或阴影设置变化时重建骨架；颜色、姿态都在已有骨架上原地更新。
@@ -2044,10 +2046,23 @@ function PrevisMannequinBody({
     useEffect(() => {
         const root = mannequin.root;
         root.userData.previsEvaluate = (time: number) => mannequin.applyPose(evaluatePrevisActorPose(objectRef.current, time));
+        root.userData.previsConstrain = (time: number) => {
+            root.userData.previsContactResults = solvePrevisContacts(mannequin, world, objectRef.current.contactConstraints || [], time);
+            root.userData.previsRigState = readPrevisRigState(mannequin);
+        };
         return () => {
             delete root.userData.previsEvaluate;
+            delete root.userData.previsConstrain;
+            delete root.userData.previsContactResults;
+            delete root.userData.previsRigState;
         };
-    }, [mannequin]);
+    }, [mannequin, world]);
+
+    useFrame(() => {
+        if (!objectRef.current.contactConstraints?.length) return;
+        mannequin.applyPose(evaluatePrevisActorPose(objectRef.current, playhead));
+        mannequin.root.userData.previsConstrain?.(playhead);
+    });
 
     const selectedBoneObject = selectedBone && selectedBone in mannequin.bones ? mannequin.bones[selectedBone as keyof typeof mannequin.bones] : null;
     return (
