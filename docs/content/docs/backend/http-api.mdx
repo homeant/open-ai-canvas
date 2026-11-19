@@ -5,6 +5,12 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## MCP 镜头与段级参考绑定
+
+`edit_episode_shots` 使用 `expectedEpisodeRevision + shotId + idempotencyKey` 原子修改 `scene/sceneCastId/castIds/propIds/lookCastIds`，校验作品归属、设定种类及造型所属角色；改绑定会使受影响段提示词待复核。`edit_segment_references` 使用段版本和分镜版本管理自定义图片选择、恢复自动收集及清空额外图片。只改动作文字不会重绑图片。
+
+`preview_segment_generation` 返回 `shotBindings/referenceMode`、实际发送的 `sentReferenceImages`、未附图的 `textOnlyReferences` 及完整文字 `fullPrompt`，明确区分绑定、文字与实际图片。参数和示例见 [短剧 MCP 编辑](/docs/backend/drama-mcp-editing)。
+
 ## 预演台外部 MCP 的逐镜状态
 
 `sample_previs_frames` 按同一场景快照只读取样 1–8 个镜头内时间点，直接返回 PNG、实际骨骼状态、接触标记残差与世界坐标包围盒风险；不会修改镜头预览或上传素材。`apply_previs_patch` 提供必须带 `shotId` 的骨骼覆盖／关键帧及手掌／脚底接触区间操作；标准人偶使用有限迭代 CCD，未实现关节限位、全身平衡或精确碰撞认证。姿态关键帧默认连续插值，显式 `step` 才跳变。参数见 [Agent MCP](/docs/backend/agent-mcp)。未设置画幅按有效 `9:16` 读取和校验；`shot_object_set` 对 `pose` 等不适用字段返回字段列表并拒绝写入。`42901` 附 `retryable` 和 `details.retryAfterMs/retryAfterSeconds/retryAt`。场景 `valid` 仅覆盖结构与引用，动作质量另标 `motionValidated:false`。

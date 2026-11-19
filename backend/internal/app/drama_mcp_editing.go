@@ -177,10 +177,15 @@ func (s *Service) UpdateDramaEpisodeSource(userID, projectID, episodeID string, 
 }
 
 type DramaShotEdit struct {
-	Operation    string  `json:"operation"`
-	ShotID       string  `json:"shotId"`
-	NewShotID    string  `json:"newShotId,omitempty"`
-	DialogueMode *string `json:"dialogueMode,omitempty"`
+	Operation    string    `json:"operation"`
+	ShotID       string    `json:"shotId"`
+	NewShotID    string    `json:"newShotId,omitempty"`
+	DialogueMode *string   `json:"dialogueMode,omitempty"`
+	Scene        *string   `json:"scene,omitempty"`
+	SceneCastID  *string   `json:"sceneCastId,omitempty"`
+	CastIDs      *[]string `json:"castIds,omitempty"`
+	PropIDs      *[]string `json:"propIds,omitempty"`
+	LookCastIDs  *[]string `json:"lookCastIds,omitempty"`
 	UpdateDramaShotRequest
 }
 type EditDramaShotsRequest struct {
@@ -247,6 +252,19 @@ func (s *Service) EditDramaShots(userID, projectID, episodeID string, req EditDr
 		if req.ExpectedEpisodeRevision == "" || req.ExpectedEpisodeRevision != dramaShotRevision(shots, -1) {
 			return nil, dramaMCPConflict(map[string]any{"episodeRevision": dramaShotRevision(shots, -1)})
 		}
+		references := map[string]model.DramaCast{}
+		for _, edit := range req.Edits {
+			if edit.SceneCastID != nil || edit.CastIDs != nil || edit.PropIDs != nil || edit.LookCastIDs != nil {
+				casts, err := local.repo.DramaCasts(projectID)
+				if err != nil {
+					return nil, err
+				}
+				for _, cast := range casts {
+					references[cast.ID] = cast
+				}
+				break
+			}
+		}
 		affected := map[int]bool{}
 		inserted := []string{}
 		for _, edit := range req.Edits {
@@ -264,6 +282,9 @@ func (s *Service) EditDramaShots(userID, projectID, episodeID string, req EditDr
 			switch edit.Operation {
 			case "update":
 				if err := applyDramaMCPShotFields(&shots[pos], edit); err != nil {
+					return nil, err
+				}
+				if err := applyDramaMCPShotReferences(&shots[pos], edit, references); err != nil {
 					return nil, err
 				}
 			case "insert_after":
@@ -285,6 +306,9 @@ func (s *Service) EditDramaShots(userID, projectID, episodeID string, req EditDr
 				anchor := shots[pos]
 				shot := model.DramaShot{ID: id, ProjectID: projectID, EpisodeID: episodeID, SegmentIndex: anchor.SegmentIndex, SegmentTitle: anchor.SegmentTitle, Scene: anchor.Scene, SceneCastID: anchor.SceneCastID, CastIDsJSON: anchor.CastIDsJSON, PropIDsJSON: "[]", LookCastIDsJSON: anchor.LookCastIDsJSON, Transition: "cut", DialogueMode: "dialogue", CreatedAt: time.Now()}
 				if err := applyDramaMCPShotFields(&shot, edit); err != nil {
+					return nil, err
+				}
+				if err := applyDramaMCPShotReferences(&shot, edit, references); err != nil {
 					return nil, err
 				}
 				shots = append(shots, model.DramaShot{})

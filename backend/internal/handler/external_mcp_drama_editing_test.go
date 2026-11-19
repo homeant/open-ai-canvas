@@ -32,6 +32,7 @@ func TestExternalMCPDramaEditingDiscoveryAndStructuredErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	wanted := map[string]bool{"get_episode_source": false, "update_episode_source": false, "edit_episode_shots": false, "rewrite_segment_prompt": false, "adopt_segment_prompt": false, "confirm_segment_prompt": false, "preview_segment_generation": false, "inspect_segment_version_media": false, "get_drama_job": false}
+	wanted["edit_segment_references"] = false
 	for _, tool := range list.Tools {
 		if _, ok := wanted[tool.Name]; ok {
 			wanted[tool.Name] = true
@@ -50,11 +51,11 @@ func TestExternalMCPDramaEditingDiscoveryAndStructuredErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			item := schema.Properties["edits"].Items
-			if item.Properties["durationSeconds"] == nil || item.Properties["dialogueMode"] == nil {
+			if item.Properties["durationSeconds"] == nil || item.Properties["dialogueMode"] == nil || item.Properties["sceneCastId"] == nil || item.Properties["castIds"] == nil || item.Properties["propIds"] == nil || item.Properties["lookCastIds"] == nil {
 				t.Fatalf("missing flattened edit schema %s", data)
 			}
 			for _, field := range item.Required {
-				if field == "speaker" || field == "durationSeconds" || field == "dialogue" {
+				if field == "speaker" || field == "durationSeconds" || field == "dialogue" || field == "sceneCastId" || field == "castIds" || field == "propIds" || field == "lookCastIds" {
 					t.Fatalf("optional patch field required: %s", field)
 				}
 			}
