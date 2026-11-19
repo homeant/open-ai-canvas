@@ -325,7 +325,7 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	}) (any, error) {
 		return svc.ApproveDramaEpisode(userID, input.DramaID, input.EpisodeID)
 	})
-	externalMCPTool(server, "generate_segments", "按段生成或重生成视频；需要幂等键；单段用 request.expectedPromptRevision，多段用 expectedSegmentRevisions 逐段校验，原子排队且重试不重复生成", func(_ context.Context, input service.GenerateDramaMCPRequest) (any, error) {
+	externalMCPTool(server, "generate_segments", "按段生成或重生成视频，需幂等键；单段 expectedPromptRevision 比较 promptRevision，expectedSegmentRevisions 按索引比较段 revision，两者独立校验；多段须提供段版本。409 附当前版本，原子排队且重试不重复生成", func(_ context.Context, input service.GenerateDramaMCPRequest) (any, error) {
 		return svc.GenerateDramaSegmentsMCP(userID, input)
 	})
 	externalMCPTool(server, "compose_episode", "合成当前剧集已有的剧情段视频；需要 expectedRevision 和幂等键；返回紧凑 jobId/taskId/revision/资源/状态回执，详情另读 get_episode。不会批准剧集", func(_ context.Context, input service.ComposeDramaMCPRequest) (any, error) {

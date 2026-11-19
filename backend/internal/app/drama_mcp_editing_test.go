@@ -74,7 +74,7 @@ func TestDramaMCPComposeCompactReceipt(t *testing.T) {
 
 func TestDramaMCPGenerationReplayDoesNotQueueTwice(t *testing.T) {
 	svc, fake, project, episode, before := mcpEditingFixture(t)
-	req := GenerateDramaMCPRequest{DramaID: project, EpisodeID: episode, Request: GenerateDramaSegmentsRequest{Segments: []int{0}, ExpectedPromptRevision: &before.Segment.Revision}, IdempotencyKey: "generate-once"}
+	req := GenerateDramaMCPRequest{DramaID: project, EpisodeID: episode, Request: GenerateDramaSegmentsRequest{Segments: []int{0}, ExpectedPromptRevision: &before.Segment.PromptRevision}, ExpectedSegmentRevisions: map[string]int64{"0": before.Segment.Revision}, IdempotencyKey: "generate-once"}
 	result, err := svc.GenerateDramaSegmentsMCP("usr-drama", req)
 	if err != nil {
 		t.Fatal(err)

@@ -842,9 +842,10 @@ func (s *Service) RetryFailedDrama(userID, projectID string) (map[string]any, er
 }
 
 type GenerateDramaSegmentsRequest struct {
-	Segments               []int             `json:"segments"`
-	VideoModel             *DramaModelChoice `json:"videoModel"`
-	ExpectedPromptRevision *int64            `json:"expectedPromptRevision,omitempty"`
+	Segments   []int             `json:"segments"`
+	VideoModel *DramaModelChoice `json:"videoModel"`
+	// PromptRevision is distinct from the segment lifecycle Revision.
+	ExpectedPromptRevision *int64 `json:"expectedPromptRevision,omitempty"`
 }
 
 // GenerateDramaSegments 显式请求剧情段视频重生成，所有段先校验再统一写入。
@@ -922,7 +923,7 @@ func (s *Service) GenerateDramaSegments(userID, projectID, episodeID string, req
 	}
 	if err := s.repo.RequestDramaSegmentVideosIfRevision(project.ID, episode.ID, indexes, modelJSON, req.ExpectedPromptRevision); err != nil {
 		if errors.Is(err, repository.ErrCreationConflict) {
-			return nil, dramaSegmentChangedError()
+			return nil, s.dramaGenerationConflict(episode.ID, indexes)
 		}
 		return nil, err
 	}

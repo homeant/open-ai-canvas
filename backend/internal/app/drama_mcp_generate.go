@@ -1,6 +1,6 @@
 package app
 
-import "yingce/backend/internal/repository"
+import "yingce/backend/internal/model"
 
 type GenerateDramaMCPRequest struct {
 	DramaID                  string                       `json:"dramaId"`
@@ -16,18 +16,19 @@ func (s *Service) GenerateDramaSegmentsMCP(userID string, req GenerateDramaMCPRe
 		if err != nil {
 			return nil, err
 		}
-		known := map[int]int64{}
+		known := map[int]model.DramaSegment{}
 		for _, row := range rows {
-			known[row.SegmentIndex] = row.Revision
+			known[row.SegmentIndex] = row
 		}
 		for _, index := range req.Request.Segments {
 			expected, ok := req.ExpectedSegmentRevisions[itoa(index)]
-			if len(req.Request.Segments) == 1 && req.Request.ExpectedPromptRevision != nil {
-				expected, ok = *req.Request.ExpectedPromptRevision, true
-			}
 			current, found := known[index]
-			if !ok || !found || expected != current {
-				return nil, repository.ErrCreationConflict
+			promptGuard := len(req.Request.Segments) == 1 && req.Request.ExpectedPromptRevision != nil
+			if !found {
+				return nil, BadAuthRequest("剧情段不存在")
+			}
+			if (!ok && !promptGuard) || (ok && expected != current.Revision) || (promptGuard && *req.Request.ExpectedPromptRevision != current.PromptRevision) {
+				return nil, local.dramaGenerationConflict(req.EpisodeID, req.Request.Segments)
 			}
 		}
 		return local.GenerateDramaSegments(userID, req.DramaID, req.EpisodeID, req.Request)
@@ -36,4 +37,33 @@ func (s *Service) GenerateDramaSegmentsMCP(userID string, req GenerateDramaMCPRe
 		s.wakeDramaScheduler()
 	}
 	return result, err
+}
+
+func (s *Service) dramaGenerationConflict(episodeID string, indexes []int) error {
+	rows, err := s.repo.DramaSegments(episodeID)
+	if err != nil {
+		return err
+	}
+	shots, err := s.repo.DramaShots(episodeID)
+	if err != nil {
+		return err
+	}
+	states := []map[string]any{}
+	for _, row := range rows {
+		for _, index := range indexes {
+			if row.SegmentIndex == index {
+				states = append(states, map[string]any{"segmentIndex": index, "segmentRevision": row.Revision, "promptRevision": row.PromptRevision, "shotRevision": dramaShotRevision(shots, index), "promptShotRevision": row.PromptShotRevision, "promptStatus": row.PromptStatus})
+				break
+			}
+		}
+	}
+	details := map[string]any{"segments": states}
+	if len(states) == 1 {
+		for key, value := range states[0] {
+			details[key] = value
+		}
+	}
+	conflict := dramaMCPConflict(details)
+	conflict.Reason = ReasonDramaSegmentChanged
+	return conflict
 }
