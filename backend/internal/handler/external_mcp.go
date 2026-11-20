@@ -51,12 +51,18 @@ func externalMCPAllow(ctx context.Context, svc *service.Service, subject string,
 }
 
 func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "yingce-video-creation", Version: "1.0.0"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "yingce-video-creation", Version: "1.1.0"}, &mcp.ServerOptions{
+		Instructions: "工具目录以本次 tools/list 为准。媒体上传、画布审片节点与正式作品采用互相独立；ready、任务成功和AAC音轨不代表视觉、台词或口型验收通过。",
+		// Codex clients that support this extension must discover a new
+		// connection's actual catalog instead of sharing an older process's list.
+		Capabilities: &mcp.ServerCapabilities{Experimental: map[string]any{"codex/tool-catalog-cache": map[string]any{"cacheable": false}}},
+	})
 	userID := user.ID
 	registerDramaEditingMCP(server, svc, userID)
 	registerDramaAudioMCP(server, svc, userID)
 	registerDramaShotMediaMCP(server, svc, userID)
 	registerMediaUploadMCP(server, svc, userID)
+	registerCanvasMediaMCP(server, svc, userID)
 	externalMCPTool(server, "list_models", "列出当前用户可用的创作模型及能力", func(_ context.Context, _ struct{}) (any, error) {
 		return svc.ModelCatalogForUser(user, nil)
 	})

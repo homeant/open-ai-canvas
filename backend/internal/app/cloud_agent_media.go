@@ -132,6 +132,7 @@ type cloudAgentMediaArgs struct {
 	ConfigurationChange        *cloudAgentMediaConfigurationChange `json:"configurationChange,omitempty"`
 	Prepared                   *cloudAgentPreparedMedia            `json:"-"`
 	DraftRunID                 string                              `json:"-"`
+	ExternalCanvas             bool                                `json:"-"`
 	CharacterVersions          map[string]string                   `json:"-"`
 	CharacterLabels            []string                            `json:"-"`
 	Mode                       string                              `json:"mode"`
@@ -405,7 +406,7 @@ func cloudAgentMediaDocument(repo *repository.Repository, userID, canvasID strin
 				NodeID: args.NodeID,
 			}
 		}
-		if args.DraftRunID == "" {
+		if args.DraftRunID == "" && !args.ExternalCanvas {
 			return nil, nil, nil, BadAuthRequest("续用草稿缺少当前运行身份")
 		}
 		ownerID := stringValue(existingMeta["agentDraftRunId"])
@@ -1097,6 +1098,10 @@ func createCloudAgentMediaNode(repo *repository.Repository, userID, canvasID str
 		return err
 	}
 	meta["status"], meta["agentDraftRunId"], meta["referenceNodeIds"] = "idle", a.DraftRunID, a.ReferenceNodeIDs
+	if a.ExternalCanvas {
+		delete(meta, "agentDraftRunId")
+		meta["source"], meta["reviewStatus"] = "mcp_canvas_generation", "unreviewed"
+	}
 	if a.Mode == "video" {
 		meta["videoStartFrameNodeId"], meta["videoEndFrameNodeId"] = a.VideoStartFrameNodeID, a.VideoEndFrameNodeID
 	}
