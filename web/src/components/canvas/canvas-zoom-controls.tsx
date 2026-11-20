@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { Compass, Eye, EyeOff, Focus, HelpCircle, LayoutTemplate, Minus, Plus } from "lucide-react";
+import { Compass, Eye, EyeOff, Focus, HelpCircle, Minus, Plus } from "lucide-react";
+import { CanvasArrangeControl } from "./canvas-arrange-control";
+import type { CanvasArrangeMode } from "@/lib/canvas/canvas-smart-layout";
 
 import { FloatingDock, type FloatingDockEntry } from "@/components/ui/aceternity/floating-dock";
 import { aceternityMotion } from "@/lib/aceternity-motion";
@@ -16,7 +18,8 @@ type CanvasZoomControlsProps = {
     scale: number;
     onScaleChange: (scale: number) => void;
     onFitContent: () => void;
-    onAutoArrange?: () => void;
+    onAutoArrange?: (mode: CanvasArrangeMode) => void;
+    selectedCount?: number;
     hideNodeConnections?: boolean;
     onHideNodeConnectionsChange?: (value: boolean) => void;
     isMiniMapOpen: boolean;
@@ -30,7 +33,19 @@ const QUICK_ZOOM_LEVELS = [0.25, 0.5, 1, 2] as const;
 const MAIN_TOOLBAR_SHIFT = "--canvas-main-toolbar-shift";
 const MAIN_TOOLBAR_MAX_WIDTH = "--canvas-main-toolbar-max-width";
 
-export function CanvasZoomControls({ scale, onScaleChange, onFitContent, onAutoArrange, hideNodeConnections = false, onHideNodeConnectionsChange, isMiniMapOpen, onToggleMiniMap, onOpenShortcuts, containerRef }: CanvasZoomControlsProps) {
+export function CanvasZoomControls({
+    scale,
+    onScaleChange,
+    onFitContent,
+    onAutoArrange,
+    selectedCount = 0,
+    hideNodeConnections = false,
+    onHideNodeConnectionsChange,
+    isMiniMapOpen,
+    onToggleMiniMap,
+    onOpenShortcuts,
+    containerRef,
+}: CanvasZoomControlsProps) {
     const theme = canvasThemes[useActiveTheme()];
     const rootRef = useRef<HTMLDivElement>(null);
     const liveScaleRef = useRef(scale);
@@ -133,7 +148,6 @@ export function CanvasZoomControls({ scale, onScaleChange, onFitContent, onAutoA
     const items: FloatingDockEntry[] = [
         { id: "zoom-minimap", label: isMiniMapOpen ? "关闭小地图" : "打开小地图", icon: <Compass />, active: isMiniMapOpen, onClick: onToggleMiniMap },
         { id: "zoom-fit", label: "适应画布", icon: <Focus />, onClick: onFitContent },
-        ...(onAutoArrange ? [{ id: "zoom-auto-arrange", label: "自动整理节点", icon: <LayoutTemplate />, onClick: onAutoArrange }] : []),
         ...(onHideNodeConnectionsChange
             ? [
                   {
@@ -168,7 +182,15 @@ export function CanvasZoomControls({ scale, onScaleChange, onFitContent, onAutoA
     ];
 
     return (
-        <div ref={rootRef} data-canvas-no-zoom className="canvas-zoom-controls relative z-[var(--z-toolbar)]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+        <div
+            ref={rootRef}
+            data-canvas-no-zoom
+            className="canvas-zoom-controls relative z-[var(--z-toolbar)] flex flex-wrap items-center gap-2"
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
+        >
+            {onAutoArrange ? <CanvasArrangeControl selectedCount={selectedCount} onArrange={onAutoArrange} /> : null}
             <AnimatePresence>
                 {precisionOpen ? (
                     <motion.div

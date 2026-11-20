@@ -2,6 +2,8 @@ import { useTranslation } from "react-i18next";
 import type { RefObject } from "react";
 
 import { CanvasSelectionToolbar } from "@/components/canvas/canvas-workspace-overlays";
+import { CanvasArrangeControl } from "@/components/canvas/canvas-arrange-control";
+import type { CanvasArrangeMode } from "@/lib/canvas/canvas-smart-layout";
 import { FloatingDock } from "@/components/ui/aceternity/floating-dock";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { canvasDockStyle } from "@/lib/canvas/canvas-aceternity-style";
@@ -16,7 +18,7 @@ type CanvasProjectSelectionToolbarProps = {
     selectedVideoCount: number;
     mergingVideos: boolean;
     onAlign: (mode: CanvasAlignmentMode) => void;
-    onArrange: (mode: "row" | "column" | "grid" | "flow") => void;
+    onArrange: (mode: CanvasArrangeMode) => void;
     onCreateStoryboard: () => void;
     onCreateReferenceGroup: () => void;
     onBatchConnect: () => void;
@@ -75,7 +77,10 @@ export function CanvasProjectSelectionToolbar({
 
     return (
         <CanvasSelectionToolbar anchorRef={anchorRef} containerRef={containerRef} count={count}>
-            <FloatingDock items={items} size="compact" className="canvas-floating-dock" style={canvasDockStyle(theme)} ariaLabel={t("canvasPage.selectionToolbar.ariaLabel")} />
+            <div className="flex max-w-full items-center gap-2 overflow-x-auto">
+                <CanvasArrangeControl selectedCount={count} onArrange={onArrange} />
+                <FloatingDock items={items} size="compact" className="canvas-floating-dock" style={canvasDockStyle(theme)} ariaLabel={t("canvasPage.selectionToolbar.ariaLabel")} />
+            </div>
         </CanvasSelectionToolbar>
     );
 }

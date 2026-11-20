@@ -1,4 +1,5 @@
 import { CanvasNodeContextMenu } from "@/components/canvas/canvas-context-menu";
+import type { CanvasArrangeMode } from "@/lib/canvas/canvas-smart-layout";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeTypeId, type CanvasWorkspaceMode, type ContextMenuState, type Position } from "@/types/canvas";
 
 type CanvasAssetCategory = NonNullable<NonNullable<CanvasNodeData["metadata"]>["assetCategory"]>;
@@ -42,6 +43,7 @@ type CanvasProjectContextMenuProps = {
     onSetAssetCategory: (nodeId: string, category: CanvasAssetCategory) => void;
     onToggleFrame: (node: CanvasNodeData) => void;
     onSpreadSelection: () => void;
+    onArrange?: (mode: CanvasArrangeMode) => void;
     onCopySelection: () => void;
     onDeleteSelection: () => void;
     onSendToAgent: () => void;
@@ -56,7 +58,7 @@ type CanvasProjectContextMenuProps = {
 export function CanvasProjectContextMenu({ menu, node, screenToCanvas, ...props }: CanvasProjectContextMenuProps) {
     const { onAdoptToDrama, onCreateDramaFromStoryboard } = props;
     if (!menu) return null;
-    const menuPosition = () => menu.type === "canvas" ? menu.position : screenToCanvas(menu.x, menu.y);
+    const menuPosition = () => (menu.type === "canvas" ? menu.position : screenToCanvas(menu.x, menu.y));
     return (
         <CanvasNodeContextMenu
             menu={menu}
@@ -126,6 +128,7 @@ export function CanvasProjectContextMenu({ menu, node, screenToCanvas, ...props 
                 if (node?.type === CanvasNodeType.Frame) props.onToggleFrame(node);
             }}
             onSpreadSelection={props.onSpreadSelection}
+            onArrange={props.onArrange}
             onCopySelection={props.onCopySelection}
             onDeleteSelection={props.onDeleteSelection}
             onSendToAgent={props.onSendToAgent}
