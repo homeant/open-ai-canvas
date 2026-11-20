@@ -112,37 +112,6 @@ func TestDramaAssetSchemesRenderWithoutPlaceholders(t *testing.T) {
 	}
 }
 
-func TestDramaFourViewPromptSkipsStoryWideRules(t *testing.T) {
-	var fourView production.AssetScheme
-	for _, scheme := range production.AssetSchemes() {
-		if scheme.Mode == production.AssetModeFourView {
-			fourView = scheme
-			break
-		}
-	}
-	if fourView.CharacterPrompt == "" {
-		t.Fatal("four-view scheme missing")
-	}
-	legacy := fourView.CharacterPrompt + "{{画面规则}}"
-	settings := DramaSettings{Settings: production.Settings{StylePrompt: "真人写实，冷灰蓝布光", Assets: production.AssetSettings{Mode: production.AssetModeFourView, CharacterPrompt: legacy}}}
-	meta := dramaBibleMeta{VisualRules: "2026年办公室整洁；2014年宿舍设备较旧"}
-	cast := model.DramaCast{Kind: "character", Name: "陈启", Appearance: "32岁，短黑发，浅蓝衬衫"}
-	prompt := buildDramaCastImagePrompt(settings, meta, cast)
-	for _, want := range []string{"陈启", "32岁", "真人写实", "面部特写", "声纹波形", "16:9"} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("character prompt missing %q: %s", want, prompt)
-		}
-	}
-	if strings.Contains(prompt, "2014年宿舍") || strings.Contains(prompt, "{{") {
-		t.Fatalf("story-wide rules leaked into default character prompt: %s", prompt)
-	}
-	settings.Assets.CharacterPrompt = legacy + "保留自定义要求。"
-	custom := buildDramaCastImagePrompt(settings, meta, cast)
-	if !strings.Contains(custom, "2014年宿舍") || !strings.Contains(custom, "保留自定义要求") {
-		t.Fatalf("custom character template was changed: %s", custom)
-	}
-}
-
 func TestDramaAssetPromptsEnforceRatio(t *testing.T) {
 	svc, fake := newDramaTestService(t)
 	// 竖屏作品的画风写着竖屏构图：设定图（16:9）的提示词里不能再出现竖屏要求，其余画风保留。

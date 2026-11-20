@@ -74,7 +74,7 @@ var assetSchemes = []AssetScheme{
 ② 正面全身（面部弱化）；③ 90° 侧面全身（面部弱化）；④ 背面全身。
 全身格从头顶到鞋底完整入画，不裁切头部；四格中的服装、发型、体型与配饰完全一致。
 画面底部一条细横带：声纹波形 / 频谱可视化图形，旁边一行不超过 8 个英文单词的音色标签。
-除音色标签外不出现任何文字。负面：全身格出现清晰五官、第二张可辨认的脸、马赛克或像素化遮挡、额外人物。`,
+除音色标签外不出现任何文字。负面：全身格出现清晰五官、第二张可辨认的脸、马赛克或像素化遮挡、额外人物。{{画面规则}}`,
 	},
 }
 
@@ -125,10 +125,6 @@ func (a AssetSettings) Normalized() AssetSettings {
 	}
 	a.CharacterPrompt = truncateRunes(strings.TrimSpace(a.CharacterPrompt), assetPromptLimit)
 	a.ScenePrompt = truncateRunes(strings.TrimSpace(a.ScenePrompt), assetPromptLimit)
-	// 旧版四格默认模板附带全剧画面规则；只更新逐字相同的内置模板，保留用户改写的内容。
-	if a.Mode == AssetModeFourView && a.CharacterPrompt == scheme.CharacterPrompt+"{{画面规则}}" {
-		a.CharacterPrompt = scheme.CharacterPrompt
-	}
 	a.PropPrompt = truncateRunes(strings.TrimSpace(a.PropPrompt), assetPromptLimit)
 	if a.CharacterPrompt == "" {
 		if a.Mode == AssetModeCustom {
