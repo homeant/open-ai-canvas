@@ -4,3 +4,11 @@ import "yingce/backend/internal/app"
 
 type ExternalUploadBeginRequest = app.ExternalUploadBeginRequest
 type ExternalUploadChunkRequest = app.ExternalUploadChunkRequest
+
+type ExternalCanvasReadRequest = app.ExternalCanvasReadRequest
+type ExternalCanvasMediaNodeRequest = app.ExternalCanvasMediaNodeRequest
+type ExternalCanvasConnectRequest = app.ExternalCanvasConnectRequest
+type ExternalCanvasVideoRequest = app.ExternalCanvasVideoRequest
+type ExternalCanvasGenerationRequest = app.ExternalCanvasGenerationRequest
+type ExternalCanvasSubmitRequest = app.ExternalCanvasSubmitRequest
+type ExternalCanvasSyncRequest = app.ExternalCanvasSyncRequest
