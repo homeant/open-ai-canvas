@@ -98,6 +98,55 @@ func TestExternalMCPDramaAudioSandbox(t *testing.T) {
 		return cs
 	}
 	cs := connect(key.Token)
+	frameArgs := map[string]any{"dramaId": "sandbox-drama", "episodeId": "sandbox-episode", "segmentIndex": 5, "atSeconds": 0.5}
+	var resourcesBefore int64
+	db.Model(&model.Resource{}).Count(&resourcesBefore)
+	preview, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "preview_segment_frame", Arguments: frameArgs})
+	if err != nil || preview.IsError {
+		t.Fatalf("frame MCP %v", err)
+	}
+	images := 0
+	for _, block := range preview.Content {
+		if img, ok := block.(*mcp.ImageContent); ok && img.MIMEType == "image/jpeg" && len(img.Data) > 100 {
+			images++
+		}
+	}
+	if images != 1 {
+		t.Fatal("MCP response dropped actual frame image")
+	}
+	var resourcesAfter int64
+	db.Model(&model.Resource{}).Count(&resourcesAfter)
+	if resourcesAfter != resourcesBefore {
+		t.Fatal("default preview created a resource")
+	}
+	frameArgs["persistPreview"] = true
+	var frameResourceID string
+	for i := 0; i < 2; i++ {
+		result, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "preview_segment_frame", Arguments: frameArgs})
+		if err != nil || result.IsError {
+			t.Fatalf("persist frame MCP %v", err)
+		}
+		data, _ := json.Marshal(result.StructuredContent)
+		var metadata struct {
+			FrameResourceID, ResourceID, FrameMimeType string
+			FrameWidth, FrameHeight                    int
+		}
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			t.Fatal(err)
+		}
+		if metadata.ResourceID != "sandbox-video" || metadata.FrameResourceID == "" || metadata.FrameWidth != 180 || metadata.FrameHeight != 320 || metadata.FrameMimeType != "image/jpeg" {
+			t.Fatalf("incomplete frame resource metadata %+v", metadata)
+		}
+		if i == 0 {
+			frameResourceID = metadata.FrameResourceID
+		} else if frameResourceID != metadata.FrameResourceID {
+			t.Fatal("MCP preview retry duplicated resource")
+		}
+	}
+	db.Model(&model.Resource{}).Count(&resourcesAfter)
+	if resourcesAfter != resourcesBefore+1 {
+		t.Fatal("MCP preview did not reuse saved JPEG")
+	}
 	call := func(name string, args map[string]any, wantError bool) map[string]any {
 		r, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 		if err != nil || r.IsError != wantError {

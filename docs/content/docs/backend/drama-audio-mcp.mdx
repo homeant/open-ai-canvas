@@ -44,6 +44,16 @@ description: 段与镜头时间窗、配音任务、实际音轨转写和版本�
 
 检查返回原始识别文本、投影到段内的句／字时间戳、完整媒体 SHA-256、资源／流 ID、裁切起点及文本／时窗比较结果。识别器没提供字时间戳时 `wordAlignmentStatus=unavailable`，不会把句边界当作字时间戳。文本错误或时间越界为 `mismatch`；未配置服务、识别失败、未返回文本或媒体探测失败为 `unknown`。缺音轨明确为不匹配。有 AAC 不代表有人声、台词正确或独白完成，ASR 也不证明人物声线与口型合格。
 
+## 本地 ASR 接入与可听审入口
+
+宿主机可运行 [whisper.cpp 官方 HTTP server](https://github.com/ggml-org/whisper.cpp/tree/master/examples/server)，macOS 的安装包为 `brew install whisper.cpp`。模型须从 [官方 ggml 模型仓库](https://huggingface.co/ggerganov/whisper.cpp) 获取并校验其公布的 SHA-256；中文使用多语言模型，不使用 `.en` 模型。比如 large-v3-turbo-q5_0 可用于本地中文识别，模型大小与机器资源按官方模型页确认。
+
+将 `whisper-server --host 127.0.0.1 --port 18178 --model /path/to/verified-model.bin --language zh --threads 6` 纳入现有进程管理；本地由 Agent 操作时使用 asvc 管理，避免重复启动。后端启动环境设置 `CANVAS_WHISPER_BASE_URL=http://127.0.0.1:18178` 后重启后端，同时确认 `timelineTranscriptionEnabled` 已开放。接口为 `/inference`，接收实际 WAV，使用 `response_format=verbose_json` 及句／字时间戳，不发送预期台词作为 prompt。容器后端的 127.0.0.1 仅指容器自身，须改用可达的自建 ASR 服务地址；不要将无鉴权的模型端口暴露公网。
+
+配置后用独立测试音频走完整检查链路，确认实际转写、时间戳和识别失败行为。识别到同音错字、零长度词时间戳或越界时，保留 `mismatch`／无效时间戳，不删除错误词或伪造字时间。一次测试成功不代表任意人物名称、数字、声源或嘴部都可靠。
+
+可听审时先从 `get_segment_audio` 取得实际音频资源 ID，再用 `get_resource_access` 取得试听地址。人工逐字听录及其时间窗可写入 `record_segment_audio_qa` 的 `content` 层观察原因；人物声源／嘴部分别写对应层。该记录明确是 manual，不冒充服务器 ASR；不能手填 ASR matched，也不能绕过最终音视频检查门槛。缺少识别服务时仍保持 unknown，不按生成任务成功自动通过。
+
 ## 分层 QA 与拒绝记录
 
 `record_segment_audio_qa` 为明确版本追加人工 `content/picture/speaker/mouth/sound_effect/final` 检查，记录认证账号、观察时间窗、依据或拒绝原因、实际资源与检查方式。必须覆盖整个目标时间窗。嘴部和人物声源暂时没有自动检测器，返回 `automaticMouthCheckAvailable=false`，人工记录明确标为 `manual`。
