@@ -226,15 +226,19 @@ func (s *Service) DramaSegmentVideoVersions(userID, projectID, episodeID string,
 }
 
 type DramaSegmentFrame struct {
-	SegmentIndex int     `json:"segmentIndex"`
-	TakeID       string  `json:"takeId,omitempty"`
-	ResourceID   string  `json:"resourceId"`
-	AtSeconds    float64 `json:"atSeconds"`
-	Width        int     `json:"width"`
-	Height       int     `json:"height"`
-	DurationMs   int64   `json:"durationMs"`
-	HasAudio     bool    `json:"hasAudio"`
-	JPEG         []byte  `json:"-"`
+	SegmentIndex    int     `json:"segmentIndex"`
+	TakeID          string  `json:"takeId,omitempty"`
+	ResourceID      string  `json:"resourceId"`
+	AtSeconds       float64 `json:"atSeconds"`
+	Width           int     `json:"width"`
+	Height          int     `json:"height"`
+	DurationMs      int64   `json:"durationMs"`
+	HasAudio        bool    `json:"hasAudio"`
+	FrameResourceID string  `json:"frameResourceId,omitempty"`
+	FrameWidth      int     `json:"frameWidth"`
+	FrameHeight     int     `json:"frameHeight"`
+	FrameMimeType   string  `json:"frameMimeType"`
+	JPEG            []byte  `json:"-"`
 }
 
 // DramaSegmentPreviewFrame 在受限临时文件中解码一帧；来源只接受本段的当前视频或历史版本。
@@ -321,5 +325,9 @@ func (s *Service) DramaSegmentPreviewFrame(ctx context.Context, userID, projectI
 	if len(jpeg) == 0 {
 		return DramaSegmentFrame{}, errors.New("预览帧提取失败：没有解码出画面")
 	}
-	return DramaSegmentFrame{SegmentIndex: index, TakeID: takeID, ResourceID: resourceID, AtSeconds: atSeconds, Width: info.Width, Height: info.Height, DurationMs: info.DurationMs, HasAudio: strings.TrimSpace(string(probe)) != "", JPEG: jpeg}, nil
+	frameWidth, frameHeight, err := dramaPreviewJPEGDimensions(jpeg)
+	if err != nil {
+		return DramaSegmentFrame{}, err
+	}
+	return DramaSegmentFrame{SegmentIndex: index, TakeID: takeID, ResourceID: resourceID, AtSeconds: atSeconds, Width: info.Width, Height: info.Height, DurationMs: info.DurationMs, HasAudio: strings.TrimSpace(string(probe)) != "", JPEG: jpeg, FrameWidth: frameWidth, FrameHeight: frameHeight, FrameMimeType: "image/jpeg"}, nil
 }

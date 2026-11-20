@@ -87,6 +87,10 @@ ID 来自本作品的设定／造型列表，不是媒体 resourceId。把 `acti
 
 `inspect_segment_version_media({dramaId,episodeId,segmentIndex,takeId?})` 实测指定或当前版本的尺寸、时长及音视频流（包括 AAC 等编解码器、声道和采样率），返回 `measurementStatus` 和 `hasAudioTrack`。服务端需 ffprobe；对象存储只读受限文件头，无法探测时明确 `unknown` 和原因，不以零时长冒充实测结果。`hasSpeech/usableDialogueAudio/soundSource` 保持未验证，音轨与语音活动均不能替代独白台词、说话人和口型验收。`preview_segment_frame` 可继续逐帧检查画面。
 
+`preview_segment_frame` 的 `content` 含真实 `image/jpeg` 图片块；只读取第一项文本元数据会漏掉图片。`structuredContent` 同时提供元数据，`resourceId` 仍是来源视频，`frameWidth/frameHeight/frameMimeType` 描述实际提取帧（宽度最多 1280，不一定与来源视频尺寸相同）。默认 `persistPreview=false`，只在临时文件中解码并返回图片，不保存资源。
+
+需要可访问的图片 ID 时显式传 `persistPreview:true`：按现有上传／存储配额保存独立 JPEG，返回 `frameResourceId`，再用 `get_resource_access` 取得临时访问地址。同一来源视频、时刻和图片字节复用同一预览资源；换帧得到新资源。它不会绑定镜头、替换段、采用或批准作品，也不构成画面／文字验收。来源时间 `atSeconds` 是请求的取样时刻，不是逐字音频对齐结果。
+
 ## 紧凑合成回执与边界
 
 `compose_episode({dramaId,episodeId,expectedRevision,idempotencyKey})` 的整数 `expectedRevision` 取自 `get_episode.episode.revision`。返回 `episodeId/jobId/taskId/revision/finalResourceId/finalStale/status`，不附整集镜头；派发前任务 ID 为空，用 `get_drama_job` 继续查询。明确关联且与现行分镜不一致的视频不能合成。该操作不批准剧集或样片。
