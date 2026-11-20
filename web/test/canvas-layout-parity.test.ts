@@ -4,9 +4,10 @@ import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canv
 import fixtures from "../../backend/internal/canvas/layout/testdata/canvas-layout.json";
 
 test("frontend and Agent consume the same layout coordinates and remain stable", () => {
-    const project = (item: { id: string; lane?: string; x?: number; y?: number; width: number; height: number }): CanvasNodeData => ({
+    const project = (item: { id: string; createdAt?: string; lane?: string; x?: number; y?: number; width: number; height: number }): CanvasNodeData => ({
         id: item.id,
         title: item.id,
+        createdAt: item.createdAt,
         type: (item.lane || "text") as CanvasNodeType,
         position: { x: item.x || 0, y: item.y || 0 },
         width: item.width,

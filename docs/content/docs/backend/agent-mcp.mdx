@@ -5,6 +5,60 @@ description: 个人和平台 MCP 的安装、参数配置、工具授权、市�
 
 # Agent MCP 连接与市场
 
+## 外部创作客户端的预演台工具
+
+### 逐帧取样、画幅和校验范围
+
+`sample_previs_frames` 接受 `{canvasId,sceneId,shotId,snapshotHash,times,longEdge?}`。`times` 是 1–8 个递增、位于镜头时长内的秒数；可按 `1 / fps` 的间隔选择连续帧。`longEdge` 为 320–960，默认 640。一次请求只启动一次浏览器，返回按时间排序的 PNG 图像和逐帧诊断，**不上传资源、不关联镜头预览、不改变修订或快照**，不需要写入幂等键；取样期间场景变化则拒绝过期结果。
+
+```json
+{"canvasId":"canvas-id","sceneId":"scene-id","shotId":"shot-id","snapshotHash":"read-current-hash","times":[0,0.5,1,1.5,2],"longEdge":640}
+```
+
+诊断使用实际渲染对象的世界坐标包围盒，标注 `possible_object_overlap`、`below_ground_bounds` 或 `bounds_unavailable`。这是粗筛风险：床面接触可能产生包围盒重叠，不能据此直接确认穿模。`collisionConfirmed:false` 与 `motionValidated:false` 保持独立；`validate_previs_scene.valid` 仅表示结构和资源关联有效，`validationScope:"structure_and_references"`。根节点翻转仍提示 `root_rotation_not_ik`，不证明真实起身成立。截图、取样和录像均按目标时间求值姿态与接触约束。
+
+未设置 `shot.aspectRatio` 时，UI、MCP 读取和竖屏校验统一使用有效值 `9:16`；读取附 `aspectRatioDefaulted:true`，不回写已有草案。新建镜头明确保存 `9:16`。显式横屏、自适应或无效值不冒充竖屏。
+
+`shot_object_set` 仅接受对象显隐、位置、旋转和尺寸；传 `pose` 等不适用字段会返回 `details.unsupportedFields` 并拒绝整批修改。姿态请使用 `shotId + object_update`，动画用 `shotId + object_keyframe_upsert`。仅切换显隐保留已有轨道；设置静态 transform 会替换该镜头的 transform 轨道并清除走位路径，不清除骨骼轨道。
+
+预演渲染和批量取样共享每用户的准入窗口。`42901` 错误返回 `retryable:true`，以及 `details.retryAfterMs`、`retryAfterSeconds`、`retryAt`；应等待对应时间后再请求，不能连续立即重试。一次批量取样只占一次准入。
+
+影策对外的 `/api/mcp` 提供 `list_previs_scenes`、`get_previs_scene`、`apply_previs_patch`、`render_previs_frame`、`render_previs_video` 等预演工具。它们不提交正式视频生成。可直接按 `canvasId` 定位当前用户的画布；读取时可用 `nodeId` 解析场景，或指定 `sceneId`。如果同时提供作品和剧集上下文，仍须校验画布归属和剧集绑定。
+
+1. 先调用 `list_previs_scenes({canvasId})`，取得场景、节点和镜头 ID。
+2. 调用 `get_previs_scene({canvasId, sceneId, shotId, includeTransforms:true})`。返回 `revision`、`snapshotHash`、米制坐标、机位、镜头独立轨道及 `scene.shotFrames` 的 `firstFrame` / `lastFrame`。首末状态是变换与姿态数据，不冒充骨骼蒙皮或碰撞检测结果。
+3. `apply_previs_patch` 必须带场景 `snapshotHash` 与 `idempotencyKey`；可同时传 `expectedRevision` 做画布修订校验。整批验证与写入在同一事务内完成，同键同请求返回原回执，同键不同请求拒绝，失效快照和修订拒绝。`dryRun:true` 只校验不落盘。
+4. 对象姿态、变换及动画补丁用 `id` 定位对象、`shotId` 明确目标镜头，写入该镜头的 `objectStates`，不修改角色场景基准或其他镜头。省略 `shotId` 表示场景全局修改，不能用于需要隔离的逐镜动作；下面的骨骼与接触语义操作必须指定 `shotId`。UI 的对象姿态、变换和骨骼编辑也保存到当前镜头。相邻姿态关键帧按逐骨骼四元数插值，默认 `linear`，支持 `smooth`；显式 `step` 才保持到下一帧再切换。
+5. `render_previs_frame({canvasId,sceneId,shotId,snapshotHash,idempotencyKey,time})` 使用真实预演视口渲染指定镜头的时间点，返回 PNG 图像内容和资源 ID；时间必须在镜头时长内。它会保存并关联镜头预览，返回更新后的快照；连续渲染需使用新快照。`render_previs_video` 仅录制最长十秒白模 WebM。
+
+### 逐镜骨骼与接触操作
+
+`apply_previs_patch.operations` 支持 `bone_override_set/clear`、`bone_keyframe_upsert/remove`、`bone_track_clear`。每项必须有演员 `id`、`shotId`、`bone`；可用的 19 个规范骨骼名由读取结果的 `capabilities.motionValidation.canonicalBones` 返回。`quaternion` 是归一化的局部 `[x,y,z,w]`，不是欧拉角。关键帧须指定镜头内的 `time`；首次写入非零秒时，须先提供零秒关键帧或显式骨骼覆盖，避免猜测初始旋转。骨骼覆盖与轨道优先于姿态预设。
+
+```json
+{"type":"bone_keyframe_upsert","id":"actor-id","shotId":"shot-id","bone":"chest","keyframeId":"chest-start","time":0,"quaternion":[0,0,0,1],"easing":"linear"}
+```
+
+读取的 `shotFrames` 返回 `boneOverrides`、`boneTracks`、首末帧的 `boneRotations` 和 `boneRotationSpace:"local_xyzw"`。这些是创作数据；批量取样的 `rigs` 才返回目标时间实际求值的规范骨骼四元数、世界关节点及接触标记坐标。
+
+标准人偶可用 `contact_constraint_set/remove` 编辑逐镜接触区间：
+
+```json
+{"type":"contact_constraint_set","id":"actor-id","shotId":"shot-id","constraintId":"left-palm-support","effector":"leftHand","surfaceObjectId":"bed-id","target":[0,0.5,0],"startTime":0,"endTime":1.2,"tolerance":0.02}
+```
+
+`effector` 支持 `leftHand/rightHand/leftFoot/rightFoot`，对应手掌／脚底标记点。有 `surfaceObjectId` 时 `target` 是该物体局部坐标，随物体变换移动；省略时是世界米制点。有效区间位于镜头内，同一肢体的区间不能重叠，每演员最多八条；`tolerance` 为 0.001–0.1 米，默认 0.02 米。被引用的支撑物不能直接删除。约束仅支持标准人偶与正数均匀根缩放，自定义模型不冒充可求解。
+
+取样返回 `ikConstraintsSupported:true`、`contactSolver:"standard_mannequin_position_ccd"`，逐条给出 `target`、`actual`、`errorMeters` 和 `status`；不可达、支撑物缺失或不支持的缩放明确报出，保存约束不代表满足约束。求解只旋转肢体、不平移演员根节点，使用有限迭代的 CCD。标记点不是精确皮肤接触面；当前没有关节限位、全身平衡或精确碰撞认证（`fullBodyIK:false`、`jointLimits:false`），仍须按真实连续帧验收起身动作。
+
+例如独立编辑第二镜最后一帧：
+
+```json
+{"type":"object_keyframe_upsert","id":"actor-id","shotId":"second-shot-id","keyframeId":"sit-end","time":3.2,"rotation":[0,0,0],"pose":"sit"}
+```
+
+预演渲染依赖真实 Web 渲染入口与 Chromium。宿主机开发设置 `CANVAS_PREVIS_RENDER_URL=http://127.0.0.1:3000/previs-render.html`，由服务端启动浏览器；该设置不是允许任意客户端指定 URL。客户端工具清单来自实际运行的后端，切换工作目录或重启旧代码不会自动包含另一分支新增的工具。
+
 Agent 可以通过远端 MCP 服务查询或操作外部系统。用户在「Agent 设置 → 工具与连接」管理个人连接；管理员在「管理后台 → MCP 管理」提供平台连接和市场条目。配置保存在服务端，后续会话可以使用已启用且已授权的工具。
 
 当前支持 Streamable HTTP 和 SSE 两种远端连接方式。不支持在影策服务器上执行用户填写的 `npx`、shell 命令或上传的本地 MCP 程序，也没有自动完成第三方 OAuth 登录的界面。需要 OAuth 的服务应先取得适用凭据，或部署支持当前认证方式的适配服务。
@@ -201,3 +255,28 @@ backend 与 Agent 镜像须按同一 Release 升级。嵌入模式可配置绝�
 回调会校验 token；配置 EncryptKey 时校验 Lark 签名。首版明确只接受明文文本事件，包含 `encrypt` 字段的加密事件会拒绝并提示关闭事件加密。消息写入现有反馈收件箱，事件按租户和事件 ID 幂等；日报使用跨实例租约和持久化状态，网络结果不确定时不自动重试。MCP 参数配置和飞书收件配置相互独立，MCP 仍适合调用外部文档、查询或操作工具。
 
 浏览器完整流程及真实 MCP 服务仍需按[待测试清单](/docs/progress/pending-test)验收。接口和数据结构分别见 [HTTP API 合同](/docs/backend/http-api)与[后端数据库](/docs/backend/backend-database)。
+
+## 预演台工具
+
+对外 `/api/mcp` 提供预演画布、场景、模型、镜头、校验与预览资源工具。作品和剧集由 `dramaId`、`episodeId` 指定；同一作品有多张画布时，先从 `list_previs_scenes` 返回的 `canvases` 选择 `canvasId`，也可用 `create_previs_canvas` 建立新画布。服务端逐次检查当前用户、作品、剧集与画布归属。新场景保存 `episodeId`，其他剧集不能读取或修改它；旧场景若无剧集标记，首次由 MCP 写入时绑定到当前剧集。
+
+| 工具 | 用途 |
+| --- | --- |
+| `list_previs_capabilities` | 坐标系、模板、操作 schema 与容量限制 |
+| `list_previs_scenes`、`create_previs_canvas`、`create_previs_scene`、`get_previs_scene` | 画布与场景目录、创建和回读 |
+| `list_previs_references` | 读取作品角色、场景、道具设定和本集镜头 ID |
+| `upload_previs_model`、`inspect_previs_model` | 上传 GLB 并取得可单独放置的 mesh 节点索引 |
+| `apply_previs_patch` | 写对象、模型、镜头、灯光、动画、镜头级对象状态及关联 |
+| `validate_previs_scene` | 检查场景结构、竖屏画幅、镜头对象状态和模型引用 |
+| `preview_previs_shot`、`render_previs_frame`、`render_previs_video`、`get_previs_render` | 核对参数、服务端生成白模单帧或视频、回读资源 |
+| `upload_previs_render`、`publish_previs_render` | 将外部渲染的 PNG/WebM 作为补充入口上传并绑定 |
+
+创建前读取画布的 `canvasSnapshotHash`；补丁前读取场景的 `snapshotHash`。这两个快照不可互换。`create_previs_scene` 使用 `idempotencyKey` 派生稳定 `sceneId` 并创建可打开预演台的工作站节点；`apply_previs_patch` 每次最多 32 项，只接受内置的对象、镜头、相机、灯光和动画语义操作，具体字段由 `list_previs_capabilities.operationSchema` 返回。两种写工具均支持 `dryRun: true`，返回拟修改摘要而不保存。提交后返回新的场景与画布快照、画布版本及节点 ID。同一幂等键的相同请求可重放，不同内容会返回冲突；回执只用于短期恢复，过期后的重复补丁仍受旧快照校验。
+
+场景坐标单位为米，Y 轴向上；`get_previs_scene` 传 `includeTransforms: true` 可读取物体位置、旋转、缩放及机位目标点，不返回模型 URL 或存储键。`upload_previs_model` 接收 `fileName`、GLB 2.0 的 `dataBase64` 和 `idempotencyKey`，单次上限为 2 MiB；更大的 GLB 可先通过 `import_resource` 从 HTTPS 地址导入，再调用 `inspect_previs_model`。返回的 `nodes[].index` 可在 `object_add` 中配合 `kind: "model"`、`resourceId` 和 `gltfNodeIndex` 使用；省略节点索引时放置整份 GLB。预演视口对这些 MCP 模型保留 GLB 的米制尺寸和层级变换。
+
+`list_previs_references` 返回剧集镜头和作品设定 ID。`shot_add` / `shot_update` 可设置 `dramaShotId` 和 `aspectRatio: "9:16"`；`object_add` / `object_update` 可设置 `dramaCastId`。`shot_object_set` 以镜头 ID 为 `id`、对象 ID 为 `objectId`，设置该镜头中的 `visible` 或位置、旋转、缩放；`shot_object_clear` 删除该镜头的覆盖状态。关联的镜头与设定必须属于当前作品及剧集。
+
+`preview_previs_shot` 只核对参数，返回 `ready_to_render`，不会生成资源或计费。调用 `render_previs_frame` 或 `render_previs_video` 时提供 `dramaId`、`episodeId`、`canvasId`、`sceneId`、`shotId`、`snapshotHash` 和 `idempotencyKey`。服务端在独立的无头 Chromium 中加载同一套预演视口，等待模型就绪，按镜头画幅输出白模 PNG 或 WebM，再保存资源并绑定到镜头；视频最长 10 秒，帧率最高 30，`longEdge` 为 320–1280。返回新场景快照及资源 ID，`get_previs_render` 可回读，随后用 `get_resource_access` 获取临时地址。这些白模渲染不调用付费模型。
+
+已有外部渲染结果也可通过 `upload_previs_render` 上传 PNG/WebM（单次上限 2 MiB），较大文件可由 `import_resource` 导入，再用 `publish_previs_render` 按场景快照和幂等键绑定。官方部署编排为服务端渲染提供独立的 `yingce-previs` 容器，使用与 backend 相同的 Release 镜像但不挂载后端数据卷或密钥，后端通过 `CANVAS_PREVIS_RENDERER_URL` 调用它；渲染页由 web 镜像的 `/previs-render.html` 提供。源码本地联调可设置 `CANVAS_PREVIS_RENDER_URL` 指向当前前端地址，并用 `CANVAS_PREVIS_CHROME_PATH` 指定本机 Chrome。自定义部署需同时提供该渲染页、Chromium 和可用的 `CANVAS_PREVIS_RENDERER_URL`，否则渲染工具会明确报错。

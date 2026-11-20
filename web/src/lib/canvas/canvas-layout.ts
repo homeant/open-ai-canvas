@@ -50,7 +50,7 @@ export function layoutCanvasNodes(nodes: CanvasNodeData[], mode: CanvasLayoutMod
 type LayoutBlock = { positions: Map<string, Position>; original: Map<string, Position>; width: number; height: number; anchor: Position };
 type LayoutRect = { left: number; top: number; right: number; bottom: number };
 
-function byOriginalPosition(a: CanvasNodeData, b: CanvasNodeData) {
+function byStableOrder(a: CanvasNodeData, b: CanvasNodeData) {
     // Geometry must not become the next run's sorting key, or repeated arrangements can shuffle nodes.
     const aKey = `${a.createdAt || ""}\u0000${a.id}`;
     const bKey = `${b.createdAt || ""}\u0000${b.id}`;
@@ -67,7 +67,7 @@ function layoutMediaLaneBlock(nodes: CanvasNodeData[]): LayoutBlock {
     let top = 0;
     let width = 0;
     LANE_ORDER.forEach((lane) => {
-        const laneNodes = nodes.filter((node) => canvasLayoutLane(node) === lane).sort(byOriginalPosition);
+        const laneNodes = nodes.filter((node) => canvasLayoutLane(node) === lane).sort(byStableOrder);
         if (!laneNodes.length) return;
         const columns = Math.min(LANE_MAX_COLUMNS, Math.max(1, Math.ceil(Math.sqrt(laneNodes.length))));
         for (let start = 0; start < laneNodes.length; start += columns) {
@@ -91,7 +91,7 @@ function layoutMediaLaneBlock(nodes: CanvasNodeData[]): LayoutBlock {
  */
 function layoutGraphBlock(nodes: CanvasNodeData[], edges: Array<[string, string]>): LayoutBlock {
     const byId = new Map(nodes.map((node) => [node.id, node]));
-    const ordered = [...nodes].sort(byOriginalPosition);
+    const ordered = [...nodes].sort(byStableOrder);
     const outbound = new Map(nodes.map((node) => [node.id, [] as string[]]));
     edges.forEach(([from, to]) => outbound.get(from)!.push(to));
 
@@ -208,7 +208,8 @@ function packLayoutBlocks(blocks: LayoutBlock[], origin: Position, obstacles: La
             x = origin.x;
             y = rowBottom + BLOCK_GAP;
         }
-        for (let guard = 0; guard < 10_000; guard += 1) {
+        // Each collision advances x or moves y beyond an obstacle; never silently accept an overlapping fallback.
+        for (;;) {
             const rect = { left: x, top: y, right: x + block.width, bottom: y + block.height };
             const hit = placed.find((item) => rectsOverlap(rect, item.rect, item.gap));
             if (!hit) break;

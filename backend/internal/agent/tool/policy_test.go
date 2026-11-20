@@ -60,3 +60,12 @@ func TestCacheableToolsAreReadOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestCharacterVoiceBindingRequiresApprovalInEveryPermissionMode(t *testing.T) {
+	policy := Of(CanvasBindCharacterVoice)
+	for _, mode := range []string{"auto", "review", "read_only"} {
+		if !policy.ApprovalRequired(mode) {
+			t.Errorf("角色声音绑定在 %s 模式不能绕过审批", mode)
+		}
+	}
+}

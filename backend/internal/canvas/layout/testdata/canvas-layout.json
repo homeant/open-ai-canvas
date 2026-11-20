@@ -1,6 +1,15 @@
 {
   "cases": [
     {
+      "name": "creation order remains stable",
+      "nodes": [
+        { "id": "a", "lane": "image", "createdAt": "2026-01-01T00:00:02Z", "width": 100, "height": 100 },
+        { "id": "z", "lane": "image", "createdAt": "2026-01-01T00:00:01Z", "width": 100, "height": 100 }
+      ],
+      "edges": [],
+      "expected": { "z": { "x": 0, "y": 0 }, "a": { "x": 156, "y": 0 } }
+    },
+    {
       "name": "media lanes",
       "nodes": [
         { "id": "t", "lane": "text", "width": 300, "height": 100 },

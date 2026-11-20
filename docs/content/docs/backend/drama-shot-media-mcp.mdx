@@ -1,0 +1,38 @@
+---
+title: 镜头图片绑定与视觉版本 QA
+description: 按稳定镜头绑定实体信息图，预演真实输入并记录版本的文字与物理连续性验收
+---
+
+# 镜头图片绑定与视觉版本 QA
+
+画布上传成功、图片实际送模、视频任务完成、产物内容验收是不同状态。准确手机屏、四行手写牌、笔记本读数和实体钟可以绑定到单个稳定 `shotId`，不会改全局道具，也不会自动生成或采用正式视频。
+
+## 只读预演与绑定
+
+`list_canvas_image_candidates` 返回当前作品画布中已就绪图片的实际 `resourceId/canvasId/nodeId/nodeHash`；不会把节点标题或提示词里的 `@[node:...]` 自动当作真实输入。支持 `offset`（默认 0）、`limit`（默认及最大 100），返回 `total/nextOffset/hasMore/snapshotHash`；offset 按筛选后的有效候选计数，按 nodeId 排序。下一页传回 snapshotHash，画布变化时返回 409 并从 0 重读，避免分页漏项。已知上传资源 ID 时传 `resourceId` 精确查找，不受前 100 张限制；同资源的多个节点分别返回。
+
+`bind_shot_reference_images` 传 `dramaId/episodeId/shotId/expectedEpisodeRevision/references/dryRun/idempotencyKey`。`expectedEpisodeRevision` 是整集镜头内容指纹，不是集记录的整数版本。每张图片指定 `resourceId/role/name`，节点来源还需 `canvasId/nodeId/nodeHash`；服务端重新读取节点、校验内容指纹并解析资源，拒绝越权、非图片、未就绪或不一致的资源。每镜最多四张，`references:[]` 清除。
+
+- `dryRun:true` 不写绑定、回执、任务或正式视频，只在克隆镜头上运行实际参考图组装，返回请求、输入顺序与是否可送模。预演不会使旧提示词自动生效。
+- `dryRun:false` 需要幂等键，与既有 `edit_episode_shots.imageReferences` 共用整集原子写入；改变后提示词和视频按既有机制失效，必须重新核对，不自动重生。
+- `role:information` 把明确实体信息图优先放入参考图编号，按镜头顺序、镜内顺序发送，然后才是普通设定图。关键图因模型方式或上限未发送时必须阻塞，不能仅显示提示词 ready 后继续提交。
+- `role:first_frame` 只可作为所在段第一个镜头的首帧，使用支持图生视频的模型；内部镜头首帧无法通过整段生成合同表达，预检明确阻塞，可改为信息参考或登记独立镜头候选。
+
+`preview_segment_generation.request.shotImages` 显示每个明确绑定的镜头、资源、用途、节点来源、`sent/inputOrder/note`。`sentReferenceImages` 同步返回实际输入，`inputOrder` 为从 0 开始的厂商输入顺序；未发送为 -1。预检与 Worker 提交使用同一组装路径。送模成功仍不保证准确文字、读数、数量或门帘位置。
+
+绑定的 dryRun 和保存回执都返回 `referenceChanges[]`，按段列出 `mapping[].before/after` 的参考图编号、实际资源、镜头／设定身份、送模状态和输入顺序。`numberingChanged` 表示编号有变化；`promptConflicts` 指出旧正文使用的受影响 token 及建议新编号，`promptReviewRequired/warnings` 提醒重新人工核对。比如旧角色“参考图1”在信息图插入后变成“参考图2”，会同时指出旧“参考图1”现在发往哪个资源。首帧不占参考图编号，首帧导致的输入顺序变化不会误报为编号位移。
+
+同一资源同时用作全局设定和单镜信息图时，按用途分别匹配，不以资源 ID 合并成一个含糊编号。前后任一侧未完整准备时 `comparisonComplete=false`，保留错误并提示映射可能不完整。接口不自动替换文字、确认提示词或重生成；保存映射位于同一幂等回执，重试不会根据后来的状态重算旧回执。
+
+## 独立镜头候选与拒绝证据
+
+`list_shot_media_versions` 返回镜头内容指纹、图片绑定、独立候选以及所在段历史视频的镜头窗与 QA。顶层 `shotRevision/reviewExpectedShotRevision` 的 `shotRevisionScope=single_shot`，是审核要传的当前单镜指纹。段视频的 `take.shotRevision` 作用于整段，`takeShotRevisionScope=segment`；独立镜头候选则为 `single_shot`。两种指纹不同仍可 `scriptMatch=matched`，不要把段 take 指纹当审核的 expectedShotRevision。旧视频没有分镜指纹时保持 unknown，不按当前分镜反向补造历史。
+
+`register_shot_media_version` 对自有已就绪图片／视频登记新 `shot_media` take，传明确镜头指纹、资源和源文件 `sourceOffsetMs/durationMs`。它只登记源裁切窗，不物理裁剪、不采用、不改正式段；时长与计划不同会标记需要重新对齐。静图仅按镜头计划展示时长登记，不能冒充动态视频。
+
+`review_shot_media_version` 对明确 `takeId + shotId` 追加 `picture/text/continuity` 的人工 approved/rejected/unknown，须提供完整源裁切窗、当前单镜 expectedShotRevision、观察／退回原因、`expectedReviewId` 和幂等键。审核 ID 的范围是 **同一 takeId + shotId + layer**：picture 首次通过后，text 的首次审核仍传空串，不传 picture 的 ID。读取 `versions[].qa.latestReviewIds[layer]` 可取得各层当前值，尚无记录的层为空串。所有记录只追加，不擦除旧拒绝。未知或过期分镜、未知／不足视频时长不能通过，但可以保留拒绝证据。
+
+- 审核 ID 冲突：409 reason 为 `shot_media_review_revision_conflict`，details 明确 `takeId/shotId/layer/currentReviewId/expectedReviewIdScope`，附正确的 `expectedReviewId`。
+- 镜头指纹冲突：409 reason 为 `shot_media_shot_revision_conflict`，details 返回当前 `expectedShotRevision/shotRevision`，明确 `expectedShotRevisionScope=single_shot`，并给出 take 的指纹及其范围。
+
+静图不能验收动态物理连续性；图片层通过只返回 `still_approved`，不算视频通过。视频候选的画面、文字、连续性分别完成后才通过视觉验收。段版本列表将视觉与音频 QA 分开返回，任一已知拒绝会显示 rejected；`videoStatus:ready` 不代表内容通过。自动 OCR、数量、物理连续性和嘴部判定不在本接口内，人工结果明确记录检查人及依据。

@@ -121,7 +121,7 @@ func TestDramaMCPSegmentVersionOwnershipAndFrame(t *testing.T) {
 		t.Fatal(err)
 	}
 	videoPath := filepath.Join(root, "resources", "segment-preview.mp4")
-	output, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=1", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "2", "-c:v", "mpeg4", "-c:a", "aac", "-y", videoPath).CombinedOutput()
+	output, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1600x900:rate=1", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "2", "-c:v", "mpeg4", "-c:a", "aac", "-y", videoPath).CombinedOutput()
 	if err != nil {
 		t.Fatalf("fixture ffmpeg: %v %s", err, output)
 	}
@@ -136,8 +136,34 @@ func TestDramaMCPSegmentVersionOwnershipAndFrame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if frame.ResourceID != segment.VideoResourceID || frame.Width != 320 || frame.Height != 180 || !frame.HasAudio || frame.DurationMs < 1900 || len(frame.JPEG) < 100 || !strings.HasPrefix(string(frame.JPEG), "\xff\xd8") {
+	if frame.ResourceID != segment.VideoResourceID || frame.Width != 1600 || frame.Height != 900 || !frame.HasAudio || frame.DurationMs < 1900 || len(frame.JPEG) < 100 || !strings.HasPrefix(string(frame.JPEG), "\xff\xd8") {
 		t.Fatalf("frame metadata: %+v", frame)
+	}
+	if frame.FrameResourceID != "" || frame.FrameWidth != 1280 || frame.FrameHeight != 720 || frame.FrameMimeType != "image/jpeg" {
+		t.Fatal("read-only frame metadata missing")
+	}
+	persisted, err := svc.PersistDramaSegmentPreviewFrame("usr-drama", frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := svc.PersistDramaSegmentPreviewFrame("usr-drama", frame)
+	if err != nil || replayed.FrameResourceID != persisted.FrameResourceID || persisted.FrameResourceID == frame.ResourceID {
+		t.Fatal("frame replay duplicated or replaced video", err)
+	}
+	if _, err := svc.PersistDramaSegmentPreviewFrame("other", frame); err == nil {
+		t.Fatal("foreign preview persisted")
+	}
+	resource, body, err := svc.OpenResource("usr-drama", persisted.FrameResourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body.Close()
+	if resource.Kind != "image" || resource.MimeType != "image/jpeg" || resource.Width != 1280 || resource.Height != 720 {
+		t.Fatal("saved preview is not JPEG")
+	}
+	unchanged, err := svc.DramaEpisodeDetail("usr-drama", projectID, episodeID)
+	if err != nil || unchanged.Segments[0].VideoResourceID != segment.VideoResourceID || unchanged.Episode.Approved != detail.Episode.Approved {
+		t.Fatal("preview adopted or approved formal video")
 	}
 	media, err := svc.InspectDramaSegmentVersionMedia(context.Background(), "usr-drama", projectID, episodeID, segment.Index, "")
 	if err != nil || media["hasAudioTrack"] != true || media["hasSpeech"] != nil || media["measurementStatus"] != "measured" {

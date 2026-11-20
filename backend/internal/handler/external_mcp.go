@@ -51,7 +51,7 @@ func externalMCPAllow(ctx context.Context, svc *service.Service, subject string,
 }
 
 func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "yingce-video-creation", Version: "1.1.0"}, &mcp.ServerOptions{
+	server := mcp.NewServer(&mcp.Implementation{Name: "yingce-video-creation", Version: "1.2.0"}, &mcp.ServerOptions{
 		Instructions: "工具目录以本次 tools/list 为准。媒体上传、画布审片节点与正式作品采用互相独立；ready、任务成功和AAC音轨不代表视觉、台词或口型验收通过。",
 		// Codex clients that support this extension must discover a new
 		// connection's actual catalog instead of sharing an older process's list.
@@ -199,19 +199,26 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	}) (any, error) {
 		return svc.RestoreDramaSegmentTake(userID, input.DramaID, input.EpisodeID, input.SegmentIndex, service.RestoreDramaSegmentTakeRequest{TakeID: input.TakeID, ExpectedRevision: input.ExpectedRevision})
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "preview_segment_frame", Description: "提取本段当前或指定历史视频在某秒的预览帧，同时返回实测尺寸、时长和有无音轨"}, func(ctx context.Context, _ *mcp.CallToolRequest, input struct {
-		DramaID      string  `json:"dramaId"`
-		EpisodeID    string  `json:"episodeId"`
-		SegmentIndex int     `json:"segmentIndex"`
-		TakeID       string  `json:"takeId,omitempty"`
-		AtSeconds    float64 `json:"atSeconds"`
+	mcp.AddTool(server, &mcp.Tool{Name: "preview_segment_frame", Description: "提取当前或历史段视频某秒的真实JPEG帧；content含image/jpeg图片块，只打印文本元数据会漏图。persistPreview默认false保持只读；true按上传配额保存独立预览图，返回frameResourceId，可用get_resource_access获取临时地址。resourceId仍指源视频；frameWidth/frameHeight是实际帧尺寸。不改正式作品、不验收"}, func(ctx context.Context, _ *mcp.CallToolRequest, input struct {
+		DramaID        string  `json:"dramaId"`
+		EpisodeID      string  `json:"episodeId"`
+		SegmentIndex   int     `json:"segmentIndex"`
+		TakeID         string  `json:"takeId,omitempty"`
+		AtSeconds      float64 `json:"atSeconds"`
+		PersistPreview bool    `json:"persistPreview,omitempty"`
 	}) (*mcp.CallToolResult, any, error) {
 		frame, err := svc.DramaSegmentPreviewFrame(ctx, userID, input.DramaID, input.EpisodeID, input.SegmentIndex, input.TakeID, input.AtSeconds)
 		if err != nil {
 			return nil, nil, err
 		}
+		if input.PersistPreview {
+			frame, err = svc.PersistDramaSegmentPreviewFrame(userID, frame)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 		metadata, _ := json.Marshal(frame)
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(metadata)}, &mcp.ImageContent{MIMEType: "image/jpeg", Data: frame.JPEG}}}, nil, nil
+		return &mcp.CallToolResult{StructuredContent: frame, Content: []mcp.Content{&mcp.TextContent{Text: string(metadata)}, &mcp.ImageContent{MIMEType: "image/jpeg", Data: frame.JPEG}}}, nil, nil
 	})
 	externalMCPTool(server, "list_previs_capabilities", "读取预演台可用的模板、语义操作、坐标系与批量限制", func(_ context.Context, _ struct{}) (any, error) {
 		return svc.ExternalPrevisCapabilities(), nil

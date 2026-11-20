@@ -107,6 +107,27 @@ describe("smart canvas arrangement", () => {
         expect(edges).toEqual(before);
     });
 
+    test("shot proximity never reverses a real video-to-image dependency", () => {
+        const metadata = { shotIndex: 1, chapterId: "chapter" };
+        const nodes = [node("image", { metadata }), node("video", { type: CanvasNodeType.Video, metadata })];
+        const result = arrangeCanvasDocument(nodes, [{ id: "extract", fromNodeId: "video", toNodeId: "image" }], { mode: "auto" });
+        expect(result.nodes[1]!.position.x).toBeLessThan(result.nodes[0]!.position.x);
+    });
+
+    test("storyboard bindings separate equal shot numbers across scripts and generated outputs inherit their shot", () => {
+        const script = (id: string, imageNodeId: string) => node(id, { type: CanvasNodeType.Script, title: "同名分镜", metadata: { storyboard: { rows: [{ id: `${id}-row`, shotNumber: 1, imageNodeId }] } } as CanvasNodeData["metadata"] });
+        const nodes = [script("script-a", "image-a"), script("script-b", "image-b"), node("image-a"), node("image-b"), node("result", { type: CanvasNodeType.Video })];
+        const edges = [{ id: "result", fromNodeId: "image-a", toNodeId: "result" }];
+        const before = structuredClone(nodes);
+        const result = arrangeCanvasDocument(nodes, edges, { mode: "shots" });
+        const byId = new Map(result.nodes.map((item) => [item.id, item]));
+        expect(byId.get("result")!.position.y).toBe(byId.get("image-a")!.position.y);
+        expect(byId.get("image-b")!.position.y).toBeGreaterThan(byId.get("image-a")!.position.y);
+        expect(nodes).toEqual(before);
+        expect(result.nodes.find((item) => item.id === "result")!.metadata).toEqual(before.find((item) => item.id === "result")!.metadata);
+        expect(arrangeCanvasDocument(result.nodes, edges, { mode: "shots" }).movedCount).toBe(0);
+    });
+
     test("empty / locked-only scopes are safe and separate does not disturb a valid layout", () => {
         expect(arrangeCanvasDocument([], [], { mode: "auto" }).movedCount).toBe(0);
         expect(arrangeCanvasDocument([node("locked", { metadata: { locked: true } })], [], { mode: "auto" }).unitCount).toBe(0);
@@ -114,6 +135,14 @@ describe("smart canvas arrangement", () => {
         const result = arrangeCanvasDocument(nodes, [], { mode: "separate" });
         expect(result.movedCount).toBe(0);
         expect(result.nodes).toEqual(nodes);
+    });
+
+    test("a 500-node canvas is arranged without losing nodes or introducing overlaps", () => {
+        const nodes = Array.from({ length: 500 }, (_, i) => node(`n${String(i).padStart(4, "0")}`, { width: 200 + (i % 11) * 20, height: 100 + (i % 9) * 30 }));
+        const result = arrangeCanvasDocument(nodes, [], { mode: "auto" });
+        expect(result.nodes).toHaveLength(500);
+        expectSeparated(result.nodes);
+        expect(arrangeCanvasDocument(result.nodes, [], { mode: "auto" }).movedCount).toBe(0);
     });
 
     test("all layout modes remain stable with obstacles and disconnected components", () => {

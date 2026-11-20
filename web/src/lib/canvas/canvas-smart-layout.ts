@@ -137,21 +137,81 @@ function shotOrder(nodes: CanvasNodeData[]) {
     return [...nodes].sort(
         (a, b) =>
             (a.metadata?.chapterTitle || a.metadata?.chapterId || "\uffff").localeCompare(b.metadata?.chapterTitle || b.metadata?.chapterId || "\uffff", undefined, { numeric: true }) ||
-            (a.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER) ||
+            (a.metadata?.chapterId || "").localeCompare(b.metadata?.chapterId || "", undefined, { numeric: true }) ||
             (a.metadata?.sceneId || "").localeCompare(b.metadata?.sceneId || "", undefined, { numeric: true }) ||
+            (a.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER) ||
             lane.indexOf(canvasLayoutLane(a)) - lane.indexOf(canvasLayoutLane(b)) ||
             stableOrder(a, b),
     );
 }
 
+/** Use real storyboard row bindings before falling back to node metadata; equal shot numbers in different scripts are unrelated. */
+function withShotIdentity(units: Unit[], connections: CanvasConnection[], owner: Map<string, string>) {
+    type Identity = { chapterId: string; chapterTitle: string; shotIndex: number; sceneId?: string };
+    const identities = new Map<string, Identity>();
+    units.forEach((unit) =>
+        unit.members.forEach((node) => {
+            const metadata = node.metadata;
+            const shotIndex = metadata?.shotIndex ?? (metadata?.dramaRef?.kind === "segment" ? metadata.dramaRef.segmentIndex : undefined);
+            if (shotIndex != null && !identities.has(unit.node.id)) identities.set(unit.node.id, { chapterId: metadata?.chapterId || metadata?.dramaRef?.episodeId || "", chapterTitle: metadata?.chapterTitle || "", shotIndex, sceneId: metadata?.sceneId });
+        }),
+    );
+    units.forEach((unit) =>
+        unit.members.forEach((script) =>
+            script.metadata?.storyboard?.rows.forEach((row) => {
+                const identity = { chapterId: script.metadata?.chapterId || script.id, chapterTitle: script.metadata?.chapterTitle || script.title || "", shotIndex: row.shotNumber };
+                const targets = [row.imageNodeId, row.videoNodeId, ...connections.filter((edge) => edge.fromNodeId === script.id && edge.storyboardRowId === row.id && edge.relation === "storyboard-output").map((edge) => edge.toNodeId)];
+                targets.forEach((id) => {
+                    const target = id ? owner.get(id) : undefined;
+                    if (target && target !== unit.node.id) identities.set(target, identity);
+                });
+            }),
+        ),
+    );
+    const outgoing = new Map<string, Set<string>>();
+    connections.forEach((edge) => {
+        const from = owner.get(edge.fromNodeId),
+            to = owner.get(edge.toNodeId);
+        if (from && to && from !== to) {
+            const targets = outgoing.get(from) || new Set<string>();
+            targets.add(to);
+            outgoing.set(from, targets);
+        }
+    });
+    const possible = new Map<string, Map<string, Identity>>();
+    const scripts = new Set(units.filter((unit) => unit.members.some((node) => node.type === CanvasNodeType.Script)).map((unit) => unit.node.id));
+    identities.forEach((identity, source) => {
+        const key = JSON.stringify(identity);
+        const queue = [source],
+            seen = new Set(queue);
+        for (let index = 0; index < queue.length; index++)
+            outgoing.get(queue[index]!)?.forEach((target) => {
+                if (seen.has(target) || identities.has(target) || scripts.has(target)) return;
+                seen.add(target);
+                const matches = possible.get(target) || new Map<string, Identity>();
+                matches.set(key, identity);
+                possible.set(target, matches);
+                queue.push(target);
+            });
+    });
+    possible.forEach((matches, id) => {
+        if (matches.size === 1) identities.set(id, [...matches.values()][0]!);
+    });
+    return units.map((unit) => {
+        const identity = identities.get(unit.node.id);
+        return identity ? { ...unit, node: { ...unit.node, metadata: { ...unit.node.metadata, ...identity } } } : unit;
+    });
+}
+
 export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: CanvasConnection[], options: { mode: CanvasArrangeMode; selectedIds?: Set<string> }) {
-    const units = canvasUnits(nodes);
+    const baseUnits = canvasUnits(nodes);
+    const owner = new Map(baseUnits.flatMap((unit) => unit.members.map((node) => [node.id, unit.node.id] as const)));
+    const units = withShotIdentity(baseUnits, connections, owner);
     const selected = units.filter((unit) => !options.selectedIds?.size || unit.members.some((node) => options.selectedIds!.has(node.id)));
     const moving = selected.filter((unit) => !unit.locked);
     const movingIds = new Set(moving.map((unit) => unit.node.id));
     const fixed = units.filter((unit) => !movingIds.has(unit.node.id)).map((unit) => unit.node);
     const candidates = moving.map((unit) => unit.node);
-    const owner = new Map(units.flatMap((unit) => unit.members.map((node) => [node.id, unit.node.id] as const)));
     const edges = connections.flatMap((edge) => {
         const fromNodeId = owner.get(edge.fromNodeId);
         const toNodeId = owner.get(edge.toNodeId);
@@ -159,6 +219,16 @@ export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: Canv
     });
     // Explicit chapter / shot identity is stronger than a loose media type. Virtual edges keep each shot together.
     if (options.mode === "auto") {
+        const connected = new Map(candidates.map((node) => [node.id, node.id]));
+        const component = (id: string): string => {
+            let root = id;
+            while (connected.get(root) !== root) root = connected.get(root)!;
+            connected.set(id, root);
+            return root;
+        };
+        edges.forEach((edge) => {
+            if (connected.has(edge.fromNodeId) && connected.has(edge.toNodeId)) connected.set(component(edge.fromNodeId), component(edge.toNodeId));
+        });
         const shots = new Map<string, CanvasNodeData[]>();
         candidates.forEach((node) => {
             if (node.metadata?.shotIndex == null) return;
@@ -167,7 +237,13 @@ export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: Canv
         });
         shots.forEach((members) => {
             const sorted = shotOrder(members);
-            sorted.slice(1).forEach((node, index) => edges.push({ id: `layout-${node.id}`, fromNodeId: sorted[index]!.id, toNodeId: node.id }));
+            sorted.slice(1).forEach((node, index) => {
+                const fromNodeId = sorted[index]!.id;
+                // Semantic proximity must never create a cycle or override a real generation dependency.
+                if (component(fromNodeId) === component(node.id)) return;
+                edges.push({ id: `layout-${node.id}`, fromNodeId, toNodeId: node.id });
+                connected.set(component(fromNodeId), component(node.id));
+            });
         });
     }
     let planned = new Map<string, Position>();
@@ -183,7 +259,7 @@ export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: Canv
             let rowHeight = 0;
             let previousKey = "";
             ordered.forEach((node, index) => {
-                const key = JSON.stringify([node.metadata?.chapterId || node.metadata?.chapterTitle || "", node.metadata?.shotIndex ?? node.id]);
+                const key = JSON.stringify([node.metadata?.chapterId || node.metadata?.chapterTitle || "", node.metadata?.sceneId || "", node.metadata?.shotIndex ?? node.id]);
                 if (index && key !== previousKey) {
                     y += rowHeight + GAP;
                     x = left;

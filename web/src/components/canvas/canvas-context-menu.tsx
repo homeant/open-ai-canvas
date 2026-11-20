@@ -157,7 +157,7 @@ export function CanvasNodeContextMenu({
     useEffect(() => {
         const close = (event: PointerEvent) => {
             const target = event.target;
-            if (target instanceof Element && target.closest(".ant-popover")) return;
+            if (target instanceof Element && target.closest(".ant-popover,.ant-dropdown")) return;
             onClose();
         };
         const closeOnEscape = (event: KeyboardEvent) => {
@@ -315,6 +315,11 @@ export function CanvasNodeContextMenu({
                         </>
                     ) : menu.type === "node" ? (
                         <>
+                            {onArrange ? (
+                                <div className="p-1">
+                                    <CanvasArrangeControl selectedCount={Math.max(1, selectedCount)} onArrange={(mode) => runAction(() => onArrange(mode))} />
+                                </div>
+                            ) : null}
                             {isCharacterReference ? (
                                 <>
                                     <MenuHeader title="角色卡" description={node?.metadata?.characterName || node?.title} />

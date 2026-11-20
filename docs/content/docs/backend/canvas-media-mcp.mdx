@@ -1,0 +1,42 @@
+---
+title: 画布媒体 MCP
+description: 本地媒体分片上传、独立审片节点和画布视频生成
+---
+
+外部 `/api/mcp` 使用登录授权账号，不接受客户端指定用户。上传与正式采用、人工验收分别处理；资源 `ready` 仅表示文件可用。
+
+## 本地文件上传
+
+1. `begin_media_upload` 提交 `fileName`、`kind=image|video|audio`、字节 `size`、完整文件 `sha256` 与 `idempotencyKey`。返回 `uploadId`、1 MiB `chunkSize`、`chunkCount` 与 90 分钟截止时间。
+2. `upload_media_chunk` 提交 `uploadId`、从 0 开始的 `index`、`dataBase64` 与分片 `sha256`。相同内容重传安全，同序号不同内容拒绝。
+3. `get_media_upload` 读取已收分片及其哈希。客户端只补缺片；不要将大文件内容写入聊天或日志。
+4. `complete_media_upload` 校验完整大小、SHA-256、文件真实类型，探测尺寸／时长并保存自有资源；完成重试返回同一资源 ID。PNG/JPEG 用图片解码，MP4/WAV 依赖服务端 ffprobe。探测失败不会登记成成功。
+5. `abort_media_upload` 释放未完成上传的配额并删除该会话分片；不能用它删除已完成资源。
+
+复用浏览器上传的单文件、日上传和总存储配额；每账号最多 32 个活动会话，单请求小于 MCP 的 4 MiB 上限。幂等键不能换文件复用。文件只保存在服务端 dataDir 的私有 staging 目录，客户端路径不会成为服务端文件路径。上传日志在同一 dataDir 下持久保存，服务重启后可续传；当前只适用于单后端实例，跨实例续传需要共享 staging 存储。过期会话须取消后重新开始。
+
+上传不会修改短剧分镜、采用角色／道具设定、替换正式视频或自动通过 QA。创建独立审片节点需要另一次明确操作。
+
+## 真实画布和 H3 视频
+
+| 工具 | 行为 |
+| --- | --- |
+| `list_canvas_media_nodes` / `get_canvas_media_node` | 只读真实节点、连线、模型和生成规格、资源实测尺寸／时长、当前正式采用来源。节点每页 100，连线每页 500，继续使用返回的偏移。不会自动同步任务或修改正式项目。 |
+| `add_canvas_media_node` | 将已上传的自有 ready 资源放入独立审片节点，保留原比例。需要 `canvasId`、`snapshotHash`、`idempotencyKey`、`resourceId` 和 `title`。 |
+| `create_canvas_video_node` | 新建视频草稿并按 `referenceNodeIds` 顺序建立真实输入连线。需要显式模型、`prompt`、`durationSeconds`、`size`、快照与幂等键；`resolution` 按模型目录填写。 |
+| `configure_canvas_video_node` | 同上，但提供已有空闲草稿 `nodeId`；已绑定任务、有产物、被锁定或活动 Agent 所有的节点拒绝覆盖。 |
+| `connect_canvas_nodes` | 添加真实媒体输入连线，使用已有画布连接规则。 |
+| `preview_canvas_generation` | 按保存的节点和实际输入连线执行只读准入，返回实际顺序／资源、费用、声音能力与 `previewHash`。不建任务、不冻结积分、不采用到正式作品。 |
+| `submit_canvas_generation` | 需最新 `snapshotHash`、`expectedPreviewHash`、`maxCostMicrocredits` 与幂等键。重新验证模型／资源／费用后，同一事务保存画布绑定、任务、账单与回执；相同请求重放不会再次收费。 |
+| `get_canvas_generation` | 只读节点所绑定任务的实时状态与实际产物。也可用已有 `get_task` 读取账单和错误。 |
+| `sync_canvas_generation` | 显式把已结束任务回写原节点，仍须匹配 `nodeId`、`taskId` 和画布快照；节点已删或换任务时拒绝，不重建、不采用正式段。 |
+
+例如 H3：先从 `list_models` 选择可用的系统渠道模型，再创建 `size="9:16"`、`durationSeconds=4`、`resolution="768P"` 的草稿。使用已上传节点的真实 `referenceNodeIds`，可用其中图片节点指定 `startFrameNodeId`／`endFrameNodeId`；预检后按报价提交。全部复用画布生成合同、模型目录、任务准入、计费和 Worker，通用 `create_video` 的工作台功能开关保持独立。
+
+预检引用只来自已保存的输入边，`@[node:ID]` 会校验并转换为对应媒体编号；没有真实输入连线的 ID 会被拒绝。H3 原生声音不需要虚构 `generateAudio` 开关，输出音轨、人声、台词、口型仍待实际验收。成功上传、生成或同步不会自动修改正式分镜／设定／段／成片。
+
+## 客户端工具目录
+
+服务端版本 `1.1.0`，新增镜头媒体功能要求主 Schema 112。后端重启与客户端重新发现是两件事：先确认服务器 `tools/list` 包含工具，再检查当前会话实际可调用目录。服务器对支持 `codex/tool-catalog-cache` 的客户端声明 `cacheable=false`，避免新连接复用旧目录；这不能清除已经运行会话里的旧工具定义。
+
+客户端仍旧只有旧目录时，在 Codex MCP 设置重连／重启影策连接，再继续原会话并检查工具。若当前客户端没有连接重启入口或没有更新会话目录，完整退出后重开客户端并继续原会话。无需重新生成或改写作品；不要把 `typeof tools.<name> === undefined` 当作服务端工具执行失败。CLI 可用 `scripts/yingce-mcp.mjs` 直接执行 `list`／`schema`／`call`／`upload`，绕过会话发现缓存，认证只从环境变量读取。

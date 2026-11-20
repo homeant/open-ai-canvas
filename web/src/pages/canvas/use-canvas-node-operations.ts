@@ -88,6 +88,13 @@ export function useCanvasNodeOperations({
         }
     });
 
+    useEffect(
+        () => () => {
+            message.destroy("canvas-arrangement");
+        },
+        [message],
+    );
+
     const releaseCopiedNodesPastePriority = useCallback(() => {
         if (internalMarkerWriteRef.current) return;
         markerWriteSequenceRef.current += 1;

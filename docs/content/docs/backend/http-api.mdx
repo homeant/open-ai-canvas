@@ -50,7 +50,7 @@ MCP 工具覆盖 `list_models`、`quote_model`、`list_resources`、`import_reso
 | `edit_segment_prompt` | 完整人工提示词保存；要求 `expectedSegmentRevision/expectedShotRevision/model/expectedSeconds/idempotencyKey`。返回 `segmentRevision/promptRevision/promptStatus/fullPrompt/conflicts`，保持待核对，重读后显式 `confirm_segment_prompt` 才生效，不发起视频生成。 |
 | `list_segment_versions` | 返回 `currentResourceId` 和视频版本列表；每个版本带 `takeId`（字段 `id`）、资源 ID、任务 ID、来源、是否当前、资源宽高与时长。缺失媒体元数据时为 0，可用预览工具实测。 |
 | `set_segment_current_version` | 加 `takeId` 和可选 `expectedRevision`；只接受本段已有的就绪视频版本，切换当前资源，不新建版本或模型生成任务。 |
-| `preview_segment_frame` | 可选 `takeId`（省略即当前版本）、`atSeconds`（0–3600）；返回 JPEG 图像内容及 `resourceId`、实测宽高、时长和有无音轨。服务端需安装 ffmpeg/ffprobe；单个视频读取上限 512 MiB。 |
+| `preview_segment_frame` | 可选 `takeId`（省略即当前版本）、`atSeconds`（0–3600）、`persistPreview`（默认 false）；content 返回实际 JPEG 图片块，structuredContent 返回来源视频 `resourceId`、尺寸／时长／音轨与实际 `frameWidth/frameHeight/frameMimeType`。显式保存时额外返回独立 `frameResourceId`，用 `get_resource_access` 获取临时地址；相同视频／时刻／图片字节复用资源，计入上传／存储配额，不改正式作品。服务端需 ffmpeg/ffprobe，来源视频上限 512 MiB。 |
 
 `generate_segments` 的 `request` 支持单段使用 `expectedPromptRevision`（取自 `get_segment.segment.promptRevision`）；MCP 的 `expectedSegmentRevisions` 独立比较段 `revision`。排队事务中复核两类版本，冲突返回 409，`details` 附当前段／提示词／分镜版本，不创建收费任务。响应的 `segments[]` 按段索引返回 `segmentId/jobId/taskId/status`。生成由调度器异步派发：尚未创建作业时 `status=awaiting_dispatch`，尚未提交模型任务时 `taskId` 为空；随后用 `get_segment.segment.videoJob` 或 `lastVideoJob` 取得实际任务 ID，再用 `get_task` 查询。任务 ID 不会在尚未提交时预先伪造。
 

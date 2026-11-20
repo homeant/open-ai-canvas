@@ -1,0 +1,67 @@
+---
+title: 短剧 MCP 后期音轨与验收
+description: 段与镜头时间窗、配音任务、实际音轨转写和版本验收证据
+---
+
+# 短剧 MCP 后期音轨与验收
+
+后期音轨是独立的版本，不修改原分镜、当前段视频或成片。先用 `get_segment_audio` 读取 `shotWindows` 和 `shotRevision`，再用 `save_segment_audio` 保存完整 `tracks`。时间是相对本段的毫秒，不直接沿用旧视频提示词的时间码；分镜时长或对白修改后必须重新核对。首次 `expectedAudioRevision=0`，随后使用最新音轨版本，始终提供分镜指纹和幂等键。
+
+`preview_segment_generation` 的 `sound.audioOutputMode` 将 `native/switch/unspecified` 分开。H3 原生生成音轨，没有独立开关；`request.generateAudio=false` 不表示无声，实际提交不发送 `videoGenerateAudio`。未声明开关的其他模型保持输出能力未知，不据此宣称静音或保证有人声。
+
+## 片段与声源
+
+每个片段有唯一 `id`、本段 `shotId`、`startMs/endMs`、`sourceOffsetMs`、文本或音效说明。时间窗必须在镜头内，同一对白的语音片段不得重叠。预检将按时间顺序核对语音片段是否完整覆盖分镜台词；标点和空格不影响文本比较，不做模糊匹配。
+
+| kind / dialogueMode | 用途 | 嘴部验收要求 |
+| --- | --- | --- |
+| speech / dialogue | 人物开口对白 | `speaking` 且显式检查音画同步 |
+| speech / inner_monologue | 人物内心独白 | 该人物闭口；不可见不能证明闭口 |
+| speech / voice_over | 画外旁白 | 闭口或明确记录该声源不在画内 |
+| sfx / silent | 脚步、纸页等音效 | 不生成语音，人工核对视频中的实际声音 |
+
+语音模式和说话人须与分镜一致。静默镜头不能通过音轨接口偷偷生成对白。`model` 仅接受受管逻辑模型或系统渠道之一，`voice` 明确指定音色，`instructions` 只保存发声指令。TTS 请求文本与实际识别文本分开返回。
+
+## 配音与绑定
+
+1. `preview_segment_audio` 执行实际 TTS 准入与报价，返回片段报价、账号余额、作品剩余预算和阻塞项，不创建任务。
+2. `generate_segment_audio_cue` 显式提交单个配音片段，传 `cueId`、音轨／分镜版本、费用上限及幂等键。任务、费用预留、新音轨版本和回执原子提交。
+3. `get_segment_audio` / `get_task` 读取实际任务状态。成功后通过 `bind_segment_audio_cue` 绑定该任务的实际音频资源；未提交任务的片段可以绑定自有音频素材，适用于已有配音与音效。
+4. 绑定要求资源就绪、归属正确、已知时长足够；`sourceOffsetMs` 用于选取音频源的起点。不自动拉伸时长，不自动混音，不替换正式视频。
+
+`videoTakeId` 只能绑定本段明确的历史视频版本。创建新音轨版本不继承任何验收结论；修改片段内容、配置、时间窗或分镜后也不继承旧任务与资源绑定。全部历史音轨的资源均受删除保护。
+
+## 实际文本与时间对齐
+
+`inspect_segment_audio` 必须指定明确 `audioRevision`、`cueId` 和 `source`：
+
+- `cue`：读取已绑定配音音频，从 `sourceOffsetMs` 开始截取本片段长度。
+- `video`：读取该音轨版本绑定视频的实际音轨，按片段在本段的起止时间截取。只有单独配音正确，不代表视频已包含它。
+
+服务端读取并哈希实际媒体，使用 ffprobe 取得流信息，再由 ffmpeg 解码目标窗为 16 kHz 单声道 WAV。多个音频流要求明确 `streamIndex`。管理员配置 `CANVAS_WHISPER_BASE_URL` 指向现有 whisper.cpp 服务，且开放转写功能后，才向 `/inference` 发送实际片段；不会把预期台词作为识别提示词。
+
+识别前测量实际片段的 PCM RMS／峰值能量。数字全零明确缺少语音，不接受识别器幻听；低能量片段保持未验证，不把识别假设用作通过依据。能量门限只是排除明显静音，不是语音活动检测，非零声音不能证明有人声或说话者身份。无说话人和台词的新插镜默认 `silent`；显式模式保持原值，有对白的新镜头仍默认 `dialogue`。
+
+检查返回原始识别文本、投影到段内的句／字时间戳、完整媒体 SHA-256、资源／流 ID、裁切起点及文本／时窗比较结果。识别器没提供字时间戳时 `wordAlignmentStatus=unavailable`，不会把句边界当作字时间戳。文本错误或时间越界为 `mismatch`；未配置服务、识别失败、未返回文本或媒体探测失败为 `unknown`。缺音轨明确为不匹配。有 AAC 不代表有人声、台词正确或独白完成，ASR 也不证明人物声线与口型合格。
+
+## 本地 ASR 接入与可听审入口
+
+宿主机可运行 [whisper.cpp 官方 HTTP server](https://github.com/ggml-org/whisper.cpp/tree/master/examples/server)，macOS 的安装包为 `brew install whisper.cpp`。模型须从 [官方 ggml 模型仓库](https://huggingface.co/ggerganov/whisper.cpp) 获取并校验其公布的 SHA-256；中文使用多语言模型，不使用 `.en` 模型。比如 large-v3-turbo-q5_0 可用于本地中文识别，模型大小与机器资源按官方模型页确认。
+
+将 `whisper-server --host 127.0.0.1 --port 18178 --model /path/to/verified-model.bin --language zh --threads 6` 纳入现有进程管理；本地由 Agent 操作时使用 asvc 管理，避免重复启动。后端启动环境设置 `CANVAS_WHISPER_BASE_URL=http://127.0.0.1:18178` 后重启后端，同时确认 `timelineTranscriptionEnabled` 已开放。接口为 `/inference`，接收实际 WAV，使用 `response_format=verbose_json` 及句／字时间戳，不发送预期台词作为 prompt。容器后端的 127.0.0.1 仅指容器自身，须改用可达的自建 ASR 服务地址；不要将无鉴权的模型端口暴露公网。
+
+配置后用独立测试音频走完整检查链路，确认实际转写、时间戳和识别失败行为。识别到同音错字、零长度词时间戳或越界时，保留 `mismatch`／无效时间戳，不删除错误词或伪造字时间。一次测试成功不代表任意人物名称、数字、声源或嘴部都可靠。
+
+可听审时先从 `get_segment_audio` 取得实际音频资源 ID，再用 `get_resource_access` 取得试听地址。人工逐字听录及其时间窗可写入 `record_segment_audio_qa` 的 `content` 层观察原因；人物声源／嘴部分别写对应层。该记录明确是 manual，不冒充服务器 ASR；不能手填 ASR matched，也不能绕过最终音视频检查门槛。缺少识别服务时仍保持 unknown，不按生成任务成功自动通过。
+
+## 分层 QA 与拒绝记录
+
+`record_segment_audio_qa` 为明确版本追加人工 `content/picture/speaker/mouth/sound_effect/final` 检查，记录认证账号、观察时间窗、依据或拒绝原因、实际资源与检查方式。必须覆盖整个目标时间窗。嘴部和人物声源暂时没有自动检测器，返回 `automaticMouthCheckAvailable=false`，人工记录明确标为 `manual`。
+
+同一版本／片段／检查层使用 `expectedCheckId` 防止覆盖并发检查；首次留空，随后填写读回的最新检查 ID。所有记录只追加，拒绝记录不删除。ASR 结果只能由服务端检查路径写入，客户端不能手填 `matched`。
+
+最终通过要求完整台词覆盖、内容和画面通过、每个配音片段的独立音频与视频 ASR 均匹配、人物声源和嘴部通过、音效实际试听通过。最终结论绑定当时的检查 ID 集合；后续增加或替换检查会使旧最终结论失效。分镜改变后旧音轨标为 `stale`，新音轨保持未验收。`list_segment_versions` 返回关联音轨版本及其 QA，当前版本并不等于已验收。
+
+## 验证边界
+
+自动化沙箱使用临时数据库和合成测试媒体，验证真实 HTTP MCP 认证、版本和归属、实际队列 Worker、模拟 TTS 产物保存、ffprobe／ffmpeg、模拟 whisper 响应、拒绝记录和最终验收门槛。模拟语音识别与人工检查只验证协议和状态流转，不证明真实模型的人声、识别、声线或嘴部质量。上线后仍需在隔离作品使用真实配音与识别服务验收。
