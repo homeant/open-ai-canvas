@@ -32,7 +32,7 @@ func (r *Repository) DramaTimingSnapshot(projectID, episodeID string) (DramaTimi
 			table any
 			order string
 		}{
-			{&result.Shots, "position, id"}, {&result.Segments, "segment_index, id"}, {&result.Audio, "revision DESC, id"}, {&result.AudioChecks, "created_at DESC, id DESC"},
+			{&result.Shots, "position, id"}, {&result.Segments, "segment_index, id"}, {&result.Audio, "revision DESC, id"}, {&result.AudioChecks, "sequence DESC, id DESC"},
 		} {
 			if err := tx.Where("project_id = ? AND episode_id = ?", projectID, episodeID).Order(query.order).Find(query.table).Error; err != nil {
 				return err

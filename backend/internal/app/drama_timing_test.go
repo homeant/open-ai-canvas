@@ -106,8 +106,15 @@ func TestTimingPreviewIsReadOnlyQuotesAndReportsCrossSegmentAudioInvalidation(t 
 		t.Fatal(err)
 	}
 	check := model.DramaAudioCheck{ID: "timing-check-unknown", ProjectID: project, EpisodeID: episode, SegmentID: second.ID, VersionID: audio.ID,
-		Sequence: 1, CueID: "cue-b", Layer: "asr_cue", Status: "unknown", Method: "server_asr", ResultJSON: `{"measurementStatus":"unknown","reason":"ASR unavailable"}`, CreatedAt: time.Now()}
+		Sequence: 1, CueID: "cue-b", Layer: "asr_cue", Status: "approved", Method: "server_asr", ResultJSON: `{"measurementStatus":"measured"}`, CreatedAt: time.Now()}
 	if err := fake.db.Create(&check).Error; err != nil {
+		t.Fatal(err)
+	}
+	latestCheck := check
+	latestCheck.ID, latestCheck.Sequence, latestCheck.Status = "timing-check-latest", 2, "unknown"
+	latestCheck.ResultJSON = `{"measurementStatus":"unknown","reason":"ASR unavailable"}`
+	latestCheck.CreatedAt = check.CreatedAt.Add(-time.Second)
+	if err := fake.db.Create(&latestCheck).Error; err != nil {
 		t.Fatal(err)
 	}
 	scope := DramaTimingRequest{DramaID: project, EpisodeID: episode}
@@ -117,7 +124,7 @@ func TestTimingPreviewIsReadOnlyQuotesAndReportsCrossSegmentAudioInvalidation(t 
 		t.Fatal(err)
 	}
 	inspection, _ := json.Marshal(timeline["audioInspection"])
-	if !strings.Contains(string(inspection), `"status":"unknown"`) || !strings.Contains(string(inspection), `"method":"server_asr"`) || timeline["dialogueTimingMeasured"] != false {
+	if !strings.Contains(string(inspection), `"status":"unknown"`) || !strings.Contains(string(inspection), `"checkId":"timing-check-latest"`) || !strings.Contains(string(inspection), `"method":"server_asr"`) || timeline["dialogueTimingMeasured"] != false {
 		t.Fatalf("unknown ASR hidden or mistaken for measured dialogue: %s", inspection)
 	}
 	if _, err := svc.DramaEpisodeTiming("other", scope); err == nil {
