@@ -183,7 +183,15 @@ func (s *Service) dramaVisualQA(projectID, takeID, shotID, currentRevision strin
 			status = "still_approved"
 		}
 	}
-	return map[string]any{"status": status, "acceptedForVideo": status == "approved", "reviews": history, "method": "manual", "automaticVisualCheckAvailable": false}, nil
+	result := map[string]any{"status": status, "acceptedForVideo": status == "approved", "reviews": history, "method": "manual", "automaticVisualCheckAvailable": false, "expectedReviewIdScope": "takeId+shotId+layer"}
+	if shotID != "" {
+		ids := map[string]string{}
+		for _, layer := range []string{"picture", "text", "continuity"} {
+			ids[layer] = latest[shotID+":"+layer].ID
+		}
+		result["latestReviewIds"] = ids
+	}
+	return result, nil
 }
 
 func (s *Service) DramaShotMediaVersions(userID string, scope DramaShotMediaScope) (map[string]any, error) {
@@ -209,6 +217,7 @@ func (s *Service) DramaShotMediaVersions(userID string, scope DramaShotMediaScop
 		}
 	}
 	versions := []map[string]any{}
+	currentShotRevision := dramaShotRevision([]model.DramaShot{*shot}, -1)
 	for _, take := range list {
 		_, start, end, match, kind, err := s.shotMediaWindow(userID, scope, &take)
 		if err != nil {
@@ -221,9 +230,16 @@ func (s *Service) DramaShotMediaVersions(userID string, scope DramaShotMediaScop
 		if match != "matched" && qa["status"] != "rejected" {
 			qa["status"], qa["acceptedForVideo"] = match, false
 		}
-		versions = append(versions, map[string]any{"take": take, "sourceStartMs": start, "sourceEndMs": end, "mediaKind": kind, "scriptMatch": match, "qa": qa, "current": false, "adopted": false, "requiresTimeMapping": take.DurationMs != shot.DurationMs})
+		versions = append(versions, map[string]any{"take": take, "takeShotRevisionScope": dramaTakeShotRevisionScope(take.Kind), "sourceStartMs": start, "sourceEndMs": end, "mediaKind": kind, "scriptMatch": match, "qa": qa, "current": false, "adopted": false, "requiresTimeMapping": take.DurationMs != shot.DurationMs})
 	}
-	return map[string]any{"shotId": shot.ID, "shotRevision": dramaShotRevision([]model.DramaShot{*shot}, -1), "episodeRevision": dramaShotRevision(shots, -1), "imageReferences": dramaShotImages(*shot), "versions": versions}, nil
+	return map[string]any{"shotId": shot.ID, "shotRevision": currentShotRevision, "shotRevisionScope": "single_shot", "reviewExpectedShotRevision": currentShotRevision, "episodeRevision": dramaShotRevision(shots, -1), "imageReferences": dramaShotImages(*shot), "versions": versions}, nil
+}
+
+func dramaTakeShotRevisionScope(kind string) string {
+	if kind == "video" {
+		return "segment"
+	}
+	return "single_shot"
 }
 
 func (s *Service) ReviewDramaShotMedia(userID string, req DramaShotMediaReviewRequest) (map[string]any, error) {
@@ -238,7 +254,10 @@ func (s *Service) ReviewDramaShotMedia(userID string, req DramaShotMediaReviewRe
 		}
 		revision := dramaShotRevision([]model.DramaShot{*shot}, -1)
 		if req.ExpectedShotRevision == "" || revision != req.ExpectedShotRevision {
-			return nil, dramaMCPConflict(map[string]any{"shotRevision": revision})
+			err := dramaMCPConflict(map[string]any{"shotId": shot.ID, "shotRevision": revision, "expectedShotRevision": revision, "providedShotRevision": req.ExpectedShotRevision, "expectedShotRevisionScope": "single_shot", "takeShotRevision": take.ShotRevision, "takeShotRevisionScope": dramaTakeShotRevisionScope(take.Kind)})
+			err.Reason = "shot_media_shot_revision_conflict"
+			err.Message = "expectedShotRevision 须使用 list_shot_media_versions 顶层的当前单镜 shotRevision；段视频 take.shotRevision 是整段指纹，不能代填"
+			return nil, err
 		}
 		if req.Layer != "picture" && req.Layer != "text" && req.Layer != "continuity" {
 			return nil, BadAuthRequest("视觉层须为 picture/text/continuity")
@@ -274,7 +293,10 @@ func (s *Service) ReviewDramaShotMedia(userID string, req DramaShotMediaReviewRe
 			}
 		}
 		if latest != req.ExpectedReviewID {
-			return nil, dramaMCPConflict(map[string]any{"reviewId": latest})
+			err := dramaMCPConflict(map[string]any{"takeId": take.ID, "shotId": req.ShotID, "layer": req.Layer, "reviewId": latest, "currentReviewId": latest, "expectedReviewId": latest, "providedReviewId": req.ExpectedReviewID, "expectedReviewIdScope": "takeId+shotId+layer"})
+			err.Reason = "shot_media_review_revision_conflict"
+			err.Message = "expectedReviewId 须为同一 takeId + shotId + layer 的最新审核 ID；该层首次审核传空串，不能使用其他层的 ID"
+			return nil, err
 		}
 		if len(rows) >= 10000 {
 			return nil, BadAuthRequest("该版本检查次数已达上限")

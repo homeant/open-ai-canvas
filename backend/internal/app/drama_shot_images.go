@@ -20,6 +20,16 @@ type DramaShotImagesRequest struct {
 	IdempotencyKey          string                          `json:"idempotencyKey"`
 }
 
+type DramaCanvasImageCandidatesRequest struct {
+	DramaID      string `json:"dramaId"`
+	EpisodeID    string `json:"episodeId"`
+	CanvasID     string `json:"canvasId"`
+	Offset       int    `json:"offset,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
+	ResourceID   string `json:"resourceId,omitempty"`
+	SnapshotHash string `json:"snapshotHash,omitempty"`
+}
+
 func (s *Service) resolveDramaShotImages(userID, projectID string, inputs []model.DramaShotImageReference) ([]model.DramaShotImageReference, error) {
 	if len(inputs) > 4 {
 		return nil, BadAuthRequest("每镜最多4张明确图片")
@@ -148,6 +158,7 @@ func (s *Service) BindDramaShotImages(userID string, req DramaShotImagesRequest)
 		return nil, NotFound("镜头不存在")
 	}
 	refs := req.References
+	beforeShots := append([]model.DramaShot(nil), shots...)
 	if err := s.applyDramaShotImages(userID, req.DramaID, &shots[index], DramaShotEdit{ImageReferences: &refs}); err != nil {
 		return nil, err
 	}
@@ -163,31 +174,31 @@ func (s *Service) BindDramaShotImages(userID string, req DramaShotImagesRequest)
 	for _, cast := range casts {
 		byID[cast.ID] = cast
 	}
-	settings := parseDramaSettings(p.SettingsJSON)
-	drafts := buildDramaSegmentDrafts(settings, parseDramaBibleMeta(p.BibleJSON), shots, byID, rows)
-	for pos, row := range rows {
-		if row.SegmentIndex != shots[index].SegmentIndex {
-			continue
-		}
-		for _, draft := range drafts {
-			if draft.view.Index == row.SegmentIndex {
-				var previous *model.DramaSegment
-				if pos > 0 {
-					previous = &rows[pos-1]
-				}
-				request, _, _, prepareErr := s.prepareDramaSegment(settings, draft, row, previous, byID)
-				issue := ""
-				if prepareErr != nil {
-					issue = prepareErr.Error()
-				}
-				return map[string]any{"dryRun": true, "shotId": req.ShotID, "segmentIndex": row.SegmentIndex, "episodeRevision": req.ExpectedEpisodeRevision, "proposedShotRevision": dramaShotRevision(shots, row.SegmentIndex), "request": request, "preparationError": issue, "referencePreparationOK": prepareErr == nil, "wouldRequirePromptReview": true, "canSubmit": false, "note": "只读模拟；图片送模不代表文字、读数或动作验收。未保存绑定、未生成或采用。"}, nil
-			}
+	segmentIndex := shots[index].SegmentIndex
+	indices := map[int]bool{segmentIndex: true}
+	beforePlans := s.dramaShotImagePlans(p, beforeShots, byID, rows, indices)
+	afterPlans := s.dramaShotImagePlans(p, shots, byID, rows, indices)
+	plan, ok := afterPlans[segmentIndex]
+	if !ok {
+		return nil, NotFound("剧情段不存在")
+	}
+	for _, row := range rows {
+		if row.SegmentIndex == segmentIndex {
+			report := dramaReferenceNumberingChanges(segmentIndex, beforePlans[segmentIndex], plan, firstNonEmpty(row.VideoPromptOverride, row.VideoPrompt))
+			return map[string]any{"dryRun": true, "shotId": req.ShotID, "segmentIndex": segmentIndex, "episodeRevision": req.ExpectedEpisodeRevision, "proposedShotRevision": dramaShotRevision(shots, segmentIndex), "request": plan.Request, "preparationError": report.AfterPreparationError, "referencePreparationOK": plan.Error == nil, "referenceChanges": []dramaReferenceNumberingReport{report}, "wouldRequirePromptReview": true, "canSubmit": false, "note": "只读模拟；图片送模不代表文字、读数或动作验收。未保存绑定、未生成或采用。"}, nil
 		}
 	}
 	return nil, NotFound("剧情段不存在")
 }
 
-func (s *Service) DramaCanvasImageCandidates(userID, projectID, episodeID, canvasID string) (map[string]any, error) {
+func (s *Service) DramaCanvasImageCandidates(userID string, req DramaCanvasImageCandidatesRequest) (map[string]any, error) {
+	if req.Offset < 0 || req.Limit < 0 || req.Limit > 100 || len(req.ResourceID) > 80 {
+		return nil, BadAuthRequest("offset须非负，limit须为1–100（省略为100），resourceId最多80字节")
+	}
+	if req.Limit == 0 {
+		req.Limit = 100
+	}
+	projectID, episodeID, canvasID := req.DramaID, req.EpisodeID, req.CanvasID
 	if _, _, err := s.dramaForUser(userID, projectID); err != nil {
 		return nil, err
 	}
@@ -205,6 +216,12 @@ func (s *Service) DramaCanvasImageCandidates(userID, projectID, episodeID, canva
 	if err != nil {
 		return nil, err
 	}
+	snapshot := cloudAgentCanvasHash(doc)
+	if req.SnapshotHash != "" && req.SnapshotHash != snapshot {
+		err := dramaMCPConflict(map[string]any{"canvasId": canvasID, "snapshotHash": snapshot, "offset": 0})
+		err.Message = "画布快照已变化，请从 offset=0 重新读取候选图片"
+		return nil, err
+	}
 	nodes, err := creationObjects(doc["nodes"])
 	if err != nil {
 		return nil, err
@@ -220,14 +237,17 @@ func (s *Service) DramaCanvasImageCandidates(userID, projectID, episodeID, canva
 		if node["type"] != "image" {
 			continue
 		}
+		meta, _ := node["metadata"].(map[string]any)
+		if req.ResourceID != "" && stringValue(meta["storageKey"]) != "resource:"+req.ResourceID {
+			continue
+		}
 		media, field, err := cloudAgentMediaReference(s.repo, userID, projectID, node)
 		if err != nil || field != "referenceImages" {
 			continue
 		}
 		items = append(items, map[string]any{"canvasId": canvasID, "nodeId": id, "nodeHash": cloudAgentNodeHash(doc, id), "resourceId": strings.TrimPrefix(stringValue(media["storageKey"]), "resource:"), "title": truncateRunes(stringValue(node["title"]), 120)})
-		if len(items) == 100 {
-			break
-		}
 	}
-	return map[string]any{"images": items, "limit": 100, "note": fmt.Sprintf("返回已就绪图片；仅有画布节点不会自动送入镜头请求。画布节点数 %d", len(nodes))}, nil
+	start := min(req.Offset, len(items))
+	end := start + min(req.Limit, len(items)-start)
+	return map[string]any{"images": items[start:end], "offset": req.Offset, "limit": req.Limit, "nextOffset": end, "hasMore": end < len(items), "total": len(items), "snapshotHash": snapshot, "resourceId": req.ResourceID, "note": fmt.Sprintf("按nodeId排序，offset按筛选后已就绪图片计数；仅有画布节点不会自动送入镜头请求。画布节点数 %d", len(nodes))}, nil
 }

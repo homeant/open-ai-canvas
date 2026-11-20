@@ -253,6 +253,13 @@ func (s *Service) EditDramaShots(userID, projectID, episodeID string, req EditDr
 		if req.ExpectedEpisodeRevision == "" || req.ExpectedEpisodeRevision != dramaShotRevision(shots, -1) {
 			return nil, dramaMCPConflict(map[string]any{"episodeRevision": dramaShotRevision(shots, -1)})
 		}
+		var beforeImageShots []model.DramaShot
+		for _, edit := range req.Edits {
+			if edit.ImageReferences != nil {
+				beforeImageShots = append([]model.DramaShot(nil), shots...)
+				break
+			}
+		}
 		references := map[string]model.DramaCast{}
 		for _, edit := range req.Edits {
 			if edit.SceneCastID != nil || edit.CastIDs != nil || edit.PropIDs != nil || edit.LookCastIDs != nil {
@@ -365,9 +372,29 @@ func (s *Service) EditDramaShots(userID, projectID, episodeID string, req EditDr
 				}
 			}
 		}
+		result := map[string]any{"episodeRevision": dramaShotRevision(shots, -1), "shots": shots, "segmentDurationsMs": totals, "insertedShotIds": inserted, "action": "shots_saved_prompts_require_review"}
+		if beforeImageShots != nil {
+			casts, err := local.repo.DramaCasts(projectID)
+			if err != nil {
+				return nil, err
+			}
+			byID := map[string]model.DramaCast{}
+			for _, cast := range casts {
+				byID[cast.ID] = cast
+			}
+			beforePlans := local.dramaShotImagePlans(p, beforeImageShots, byID, segments, affected)
+			afterPlans := local.dramaShotImagePlans(p, shots, byID, segments, affected)
+			changes := []dramaReferenceNumberingReport{}
+			for _, segment := range segments {
+				if affected[segment.SegmentIndex] {
+					changes = append(changes, dramaReferenceNumberingChanges(segment.SegmentIndex, beforePlans[segment.SegmentIndex], afterPlans[segment.SegmentIndex], firstNonEmpty(segment.VideoPromptOverride, segment.VideoPrompt)))
+				}
+			}
+			result["referenceChanges"] = changes
+		}
 		if err := local.repo.ReplaceDramaEditedShots(*episode, shots, affected); err != nil {
 			return nil, err
 		}
-		return map[string]any{"episodeRevision": dramaShotRevision(shots, -1), "shots": shots, "segmentDurationsMs": totals, "insertedShotIds": inserted, "action": "shots_saved_prompts_require_review"}, nil
+		return result, nil
 	})
 }
