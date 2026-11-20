@@ -33,6 +33,8 @@ func TestExternalMCPDramaEditingDiscoveryAndStructuredErrors(t *testing.T) {
 	}
 	wanted := map[string]bool{"get_episode_source": false, "update_episode_source": false, "edit_episode_shots": false, "rewrite_segment_prompt": false, "adopt_segment_prompt": false, "confirm_segment_prompt": false, "preview_segment_generation": false, "inspect_segment_version_media": false, "get_drama_job": false}
 	wanted["edit_segment_references"] = false
+	wanted["get_episode_timing"] = false
+	wanted["preview_episode_timing_edits"] = false
 	for _, name := range []string{"list_canvas_image_candidates", "bind_shot_reference_images", "list_shot_media_versions", "register_shot_media_version", "review_shot_media_version"} {
 		wanted[name] = false
 	}

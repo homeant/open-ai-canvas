@@ -59,6 +59,7 @@ func externalMCPServer(svc *service.Service, user *model.User) *mcp.Server {
 	})
 	userID := user.ID
 	registerDramaEditingMCP(server, svc, userID)
+	registerDramaTimingMCP(server, svc, userID)
 	registerDramaAudioMCP(server, svc, userID)
 	registerDramaShotMediaMCP(server, svc, userID)
 	registerMediaUploadMCP(server, svc, userID)
