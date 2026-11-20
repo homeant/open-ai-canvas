@@ -147,4 +147,41 @@ func TestExternalMCPCanvasMediaHTTPSandbox(t *testing.T) {
 	if count != 1 {
 		t.Fatal("unexpected task count", count)
 	}
+	for _, row := range []any{
+		&model.Project{ID: "image-project", UserID: "user", Type: "short-drama", Status: model.ProjectStatusActive},
+		&model.DramaProduction{ProjectID: "image-project", UserID: "user", SettingsJSON: "{}"},
+		&model.DramaEpisode{ID: "image-episode", ProjectID: "image-project"},
+		&model.DramaShot{ID: "image-shot", ProjectID: "image-project", EpisodeID: "image-episode", DurationMs: 1000},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Model(&model.CanvasProject{}).Where("id = ?", "canvas").Update("project_id", "image-project").Error; err != nil {
+		t.Fatal(err)
+	}
+	graph = call("list_canvas_media_nodes", map[string]any{"canvasId": "canvas"})
+	candidates := call("list_canvas_image_candidates", map[string]any{"dramaId": "image-project", "episodeId": "image-episode", "canvasId": "canvas", "resourceId": resourceID, "offset": 0, "limit": 1, "snapshotHash": graph["snapshotHash"]})
+	if candidates["total"] != float64(1) || candidates["hasMore"] != false || candidates["images"].([]any)[0].(map[string]any)["resourceId"] != resourceID {
+		t.Fatalf("candidate MCP arguments ignored %+v", candidates)
+	}
+	scope := map[string]any{"dramaId": "image-project", "episodeId": "image-episode", "shotId": "image-shot"}
+	versions := call("list_shot_media_versions", scope)
+	registered := call("register_shot_media_version", map[string]any{"dramaId": "image-project", "episodeId": "image-episode", "shotId": "image-shot", "expectedShotRevision": versions["shotRevision"], "resourceId": resourceID, "sourceOffsetMs": 0, "durationMs": 1000, "idempotencyKey": "image-candidate"})
+	review := map[string]any{"dramaId": "image-project", "episodeId": "image-episode", "shotId": "image-shot", "takeId": registered["take"].(map[string]any)["id"], "expectedShotRevision": versions["reviewExpectedShotRevision"], "layer": "picture", "status": "approved", "reason": "真实静态画面检查", "startMs": 0, "endMs": 1000, "expectedReviewId": "", "idempotencyKey": "picture-check"}
+	picture := call("review_shot_media_version", review)
+	review["layer"], review["expectedReviewId"], review["idempotencyKey"] = "text", picture["id"], "text-wrong-layer"
+	conflict, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "review_shot_media_version", Arguments: review})
+	if err != nil || !conflict.IsError {
+		t.Fatal("expected layer conflict", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(conflict.Content[0].(*mcp.TextContent).Text), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["reason"] != "shot_media_review_revision_conflict" || body["details"].(map[string]any)["layer"] != "text" || body["details"].(map[string]any)["currentReviewId"] != "" {
+		t.Fatalf("unhelpful MCP conflict %+v", body)
+	}
+	review["expectedReviewId"], review["idempotencyKey"], review["status"], review["reason"] = "", "text-first", "rejected", "文字需退回"
+	call("review_shot_media_version", review)
 }

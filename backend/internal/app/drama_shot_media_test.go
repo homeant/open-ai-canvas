@@ -66,7 +66,7 @@ func TestDramaShotCanvasImageSourceAndFirstFrame(t *testing.T) {
 	if err := fake.db.Create(&model.CanvasProject{ID: "image-canvas", ProjectID: project, UserID: "usr-drama", PayloadJSON: string(data)}).Error; err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := s.DramaCanvasImageCandidates("usr-drama", project, episode, "image-canvas")
+	candidates, err := s.DramaCanvasImageCandidates("usr-drama", DramaCanvasImageCandidatesRequest{DramaID: project, EpisodeID: episode, CanvasID: "image-canvas"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestDramaShotCanvasImageSourceAndFirstFrame(t *testing.T) {
 	if _, err := s.BindDramaShotImages("usr-drama", req); err == nil {
 		t.Fatal("stale node accepted")
 	}
-	if _, err := s.DramaCanvasImageCandidates("other", project, episode, "image-canvas"); err == nil {
+	if _, err := s.DramaCanvasImageCandidates("other", DramaCanvasImageCandidatesRequest{DramaID: project, EpisodeID: episode, CanvasID: "image-canvas"}); err == nil {
 		t.Fatal("foreign canvas access")
 	}
 }
