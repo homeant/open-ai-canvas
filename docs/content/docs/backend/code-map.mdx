@@ -18,7 +18,7 @@ description: 从产品功能快速定位主要代码入口
 
 ## 短剧 MCP 原子精修
 
-- 生成视频全部镜头的真实音轨检查：`app/drama_video_speech.go`，逐窗转写复用 `app/drama_audio_inspection.go`，证据与人工人物／嘴部验收复用 `drama_audio_qa.go`、`drama_audio_qa_manual.go`。外部工具统一在 `handler/external_mcp_drama_audio.go` 注册。
+- 生成视频全部镜头的真实音轨检查：`app/drama_video_speech.go`，逐窗转写复用 `app/drama_audio_inspection.go`，证据与人工人物／嘴部验收复用 `drama_audio_qa.go`、`drama_audio_qa_manual.go`。独立音轨对齐并丢弃原生音轨：`app/drama_audio_render.go`，产物以候选 take 和新音轨版本保存，不改正式视频。外部工具统一在 `handler/external_mcp_drama_audio.go` 注册。
 
 - 外部工具：`handler/external_mcp_drama_editing.go`；业务编排：`app/drama_mcp_editing.go`、`drama_mcp_prompts.go`、`drama_mcp_preflight.go`、`drama_mcp_compose.go`。事务与回执：`repository/drama_mutation.go`、`model/models_drama_mutation.go`，迁移 Schema 113。
 - 镜头场景／角色／道具绑定与段级图片覆盖在 `app/drama_mcp_references.go`；`drama_mcp_preflight.go` 明确区分镜头绑定、实际送图和仅文字设定。

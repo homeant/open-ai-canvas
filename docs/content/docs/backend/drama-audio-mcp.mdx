@@ -45,6 +45,16 @@ description: 段与镜头时间窗、配音任务、实际音轨转写和版本�
 
 单次最多 100 镜、300 秒，处理上限两分钟。`get_segment_audio` 和 `list_segment_versions` 可回读证据与 QA；task succeeded、video ready、prompt ready、scriptMatch=match 都不是音视频验收通过。`scriptMatch` 比较版本与分镜合同，不比较实际音轨。
 
+### 独立音轨合入候选视频
+
+先保存与当前分镜、明确视频 take 绑定的独立音轨计划，再逐个生成或绑定 speech／sfx 的真实音频资源。`render_segment_audio` 接收段作用域、`expectedAudioRevision`、`expectedShotRevision`、幂等键，并要求明确 `nativeAudioMode=discard`。
+
+服务端读取并哈希源视频和全部独立音频，实测时长与音频流；按 `sourceOffsetMs` 裁切每个源，再将其对齐到 `startMs/endMs`，不自动拉伸。源视频分镜指纹必须一致；独立音频须有一条音频流且无视频。输出仅映射原视频画面和独立混音，丢弃全部原生音轨，包括原生对白、音乐和环境音。此路径不做人声分离，也不能保留原生音乐；需要音乐、环境音时显式绑定替代音效素材。
+
+接口保存新候选 video take 与关联的未验收音轨版本，返回 `videoTakeId`、`videoResourceId`、带 SHA-256 的来源与对齐记录、`nativeAudioDiscarded=true`、`adopted=false`、`accepted=false`。源文件、历史 take 与历史证据保留，正式视频不变，不提交付费生成模型。新产物按现有资源上传配额入库，重复幂等请求重放相同结果；若保存期间版本变化则报冲突，不采用失效产物，未关联上传按通用资源回收策略处理。
+
+最终视频须重新检查实际视频 ASR、人物声源和口型，不能沿用源视频或独立音频的旧通过结论。替换音轨不能修正画面中的张嘴行为，独白时仍张嘴需要拒绝或人工修画面；确认后才通过既有显式采用入口切换正式版本。单段最多 100 片段、300 秒，处理上限两分钟。
+
 ### 检查单个配音或视频片段
 
 `inspect_segment_audio` 必须指定明确 `audioRevision`、`cueId` 和 `source`：
