@@ -8,6 +8,16 @@ import (
 )
 
 func registerDramaAudioMCP(server *mcp.Server, svc *service.Service, userID string) {
+	externalMCPTool(server, "render_segment_audio", "将明确音轨版本的独立音频按段内毫秒对齐到绑定视频，nativeAudioMode 必须为 discard：原生对白、音乐及环境音全部丢弃。需最新音轨/分镜版本及幂等键；产生候选视频 take 与未验收音轨新版本，不改正式视频、不提交付费模型生成。须对最终视频重做 ASR/声源/口型 QA", func(ctx context.Context, input service.RenderDramaAudioRequest) (any, error) {
+		policy, err := svc.RuntimePolicy()
+		if err != nil {
+			return nil, err
+		}
+		if err := externalMCPAllow(ctx, svc, "audio-render:"+userID, policy.Request.TaskCreatePerMinute); err != nil {
+			return nil, err
+		}
+		return svc.RenderDramaSegmentAudio(ctx, userID, input)
+	})
 	externalMCPTool(server, "inspect_segment_video_speech", "对明确 videoTakeId 的真实音轨按全部 shot 时窗检查文本和起止，含无台词窗口。需分镜指纹、最新音轨 revision（首建 0）与幂等键。保存新的原生视频音轨证据版本及逐镜 ASR；不提交生成、不改正式视频。说话人与口型保持未验证，须人工 QA；ASR 不代表最终通过", func(ctx context.Context, input service.InspectDramaVideoSpeechRequest) (any, error) {
 		policy, err := svc.RuntimePolicy()
 		if err != nil {

@@ -106,7 +106,7 @@ func TestExternalMCPDramaAudioSandbox(t *testing.T) {
 	for _, tool := range catalog.Tools {
 		registered[tool.Name] = true
 	}
-	if !registered["inspect_segment_video_speech"] {
+	if !registered["inspect_segment_video_speech"] || !registered["render_segment_audio"] {
 		t.Fatal("new audio tools missing from MCP discovery")
 	}
 	frameArgs := map[string]any{"dramaId": "sandbox-drama", "episodeId": "sandbox-episode", "segmentIndex": 5, "atSeconds": 0.5}
@@ -211,6 +211,7 @@ func TestExternalMCPDramaAudioSandbox(t *testing.T) {
 	if native["accepted"] != false || len(native["shotResults"].([]any)) != 3 || native["version"].(map[string]any)["revision"] != float64(2) {
 		t.Fatalf("native inspection %+v", native)
 	}
+	call("render_segment_audio", map[string]any{"dramaId": "sandbox-drama", "episodeId": "sandbox-episode", "segmentIndex": 5, "expectedShotRevision": shotRevision, "expectedAudioRevision": 2, "nativeAudioMode": "discard", "idempotencyKey": "cannot-render-native-cues"}, true)
 	otherKey, err := svc.CreateUserAPIKey("sandbox-other", "sandbox-other")
 	if err != nil {
 		t.Fatal(err)
