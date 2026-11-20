@@ -33,6 +33,20 @@ description: 段与镜头时间窗、配音任务、实际音轨转写和版本�
 
 ## 实际文本与时间对齐
 
+### 直接验收生成视频的全部镜头
+
+`inspect_segment_video_speech` 不要求先生成独立配音。提供 `dramaId`、`episodeId`、`segmentIndex`、明确的 `videoTakeId`、`expectedShotRevision`、最新 `expectedAudioRevision`（首建为 0）与 `idempotencyKey`；多音频流时提供 `streamIndex`。视频 take 必须属于该段，且分镜指纹与当前一致。
+
+接口读取一次真实视频，按全部 shot 的完整段内时窗裁切、测量与转写，返回 `shotResults`：稳定 `shotId`、预期说话人／对白模式／嘴部要求、识别文本、实测句／字起止、媒体 SHA-256 及检查记录。无台词窗口也检查，识别到额外文本为 mismatch；数字静音或确实无音轨可作为该窗无语音证据，其他声音下识别器返回空文本仍为 unknown。对白窗口没有音轨或数字静音为 mismatch。缺 ASR、低能量或探测失败保持 unknown。
+
+这会保存新的音轨证据版本及逐镜 `asr_video` 检查，保留旧计划和拒绝记录；不会覆盖分镜或正式视频。新版本片段 `source=native_video` 由服务端指定，无台词窗以内部 `kind=silence` 返回。该版本用于实际视频验收，不是待提交的 TTS 计划；需要配音时另存仅含 speech／sfx 的独立音轨计划。
+
+直接视频验收不要求不存在的独立配音 ASR，但仍要求每窗实际视频 ASR，语音窗的人物声源和嘴部、无台词窗的嘴部，以及整版内容、画面和最终人工检查。`automaticSpeakerCheckAvailable=false`、`automaticMouthCheckAvailable=false`；ASR 不证明人物身份或画外声闭口。对白进入其他镜头时窗会与各窗的预期文本不匹配；检查在裁切窗内识别，不冒称提供跨窗说话人分离或自动口型检测。
+
+单次最多 100 镜、300 秒，处理上限两分钟。`get_segment_audio` 和 `list_segment_versions` 可回读证据与 QA；task succeeded、video ready、prompt ready、scriptMatch=match 都不是音视频验收通过。`scriptMatch` 比较版本与分镜合同，不比较实际音轨。
+
+### 检查单个配音或视频片段
+
 `inspect_segment_audio` 必须指定明确 `audioRevision`、`cueId` 和 `source`：
 
 - `cue`：读取已绑定配音音频，从 `sourceOffsetMs` 开始截取本片段长度。
@@ -57,6 +71,8 @@ description: 段与镜头时间窗、配音任务、实际音轨转写和版本�
 ## 分层 QA 与拒绝记录
 
 `record_segment_audio_qa` 为明确版本追加人工 `content/picture/speaker/mouth/sound_effect/final` 检查，记录认证账号、观察时间窗、依据或拒绝原因、实际资源与检查方式。必须覆盖整个目标时间窗。嘴部和人物声源暂时没有自动检测器，返回 `automaticMouthCheckAvailable=false`，人工记录明确标为 `manual`。
+
+人物声源 `speaker` 层通过须填写实际听审人物 `observedSpeaker`，并与该片段预期人物一致；不能只凭 ASR 文本相同通过。拒绝或未知时可记录实际听到的人物或无法判断的原因。
 
 同一版本／片段／检查层使用 `expectedCheckId` 防止覆盖并发检查；首次留空，随后填写读回的最新检查 ID。所有记录只追加，拒绝记录不删除。ASR 结果只能由服务端检查路径写入，客户端不能手填 `matched`。
 

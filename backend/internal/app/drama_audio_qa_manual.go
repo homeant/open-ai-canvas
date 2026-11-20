@@ -33,12 +33,21 @@ func (s *Service) RecordDramaAudioQA(userID string, req DramaAudioQARequest) (ma
 			if cue == nil || (req.Layer == "sound_effect") != (cue.Kind == "sfx") {
 				return nil, BadAuthRequest("检查层与音轨片段类型不符")
 			}
+			if req.Layer == "speaker" && cue.Kind != "speech" {
+				return nil, BadAuthRequest("人物声源检查仅适用于语音片段")
+			}
+			if utf8.RuneCountInString(req.ObservedSpeaker) > 60 {
+				return nil, BadAuthRequest("实际声源名称过长")
+			}
+			if req.Layer == "speaker" && req.Status == "approved" && (strings.TrimSpace(req.ObservedSpeaker) == "" || req.ObservedSpeaker != cue.Speaker) {
+				return nil, BadAuthRequest("人物声源通过须明确实际听审人物，且与预期声源一致")
+			}
 			start, end = cue.StartMs, cue.EndMs
 			if req.Layer == "mouth" {
 				if req.MouthState != "closed" && req.MouthState != "speaking" && req.MouthState != "not_visible" && req.MouthState != "unknown" {
 					return nil, BadAuthRequest("须填写实际观察到的嘴部状态")
 				}
-				if req.Status == "approved" && ((cue.DialogueMode == "dialogue" && (req.MouthState != "speaking" || !req.LipSyncChecked)) || (cue.DialogueMode == "inner_monologue" && req.MouthState != "closed") || (cue.DialogueMode == "voice_over" && req.MouthState != "closed" && req.MouthState != "not_visible")) {
+				if req.Status == "approved" && ((cue.DialogueMode == "dialogue" && (req.MouthState != "speaking" || !req.LipSyncChecked)) || (cue.DialogueMode == "inner_monologue" && req.MouthState != "closed") || ((cue.DialogueMode == "voice_over" || cue.DialogueMode == "silent") && req.MouthState != "closed" && req.MouthState != "not_visible")) {
 					return nil, BadAuthRequest("开口对白须检查嘴部同步；独白/旁白须确认闭口，不可见保持未验证")
 				}
 			}

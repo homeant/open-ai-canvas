@@ -138,6 +138,7 @@ func TestDramaAudioASRAndLayeredQASandbox(t *testing.T) {
 		qa.CueID = ""
 		if layer == "speaker" {
 			qa.CueID = plan.Tracks[0].ID
+			qa.ObservedSpeaker = plan.Tracks[0].Speaker
 		}
 		if _, err := s.RecordDramaAudioQA("usr-drama", qa); err != nil {
 			t.Fatalf("layer %s %v", layer, err)
