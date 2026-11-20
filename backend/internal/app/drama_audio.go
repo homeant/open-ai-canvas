@@ -466,6 +466,10 @@ func (s *Service) PreviewDramaSegmentAudio(userID string, scope DramaAudioScope)
 			blockers = append(blockers, "分镜已变化，须重存计划并重新验收")
 		}
 		for _, cue := range version.Tracks {
+			if cue.Source == "native_video" {
+				blockers = append(blockers, cue.ID+": 这是视频验收证据；请另存独立配音计划后预检 TTS")
+				continue
+			}
 			if cue.ResourceID != "" {
 				resource, err := s.repo.ResourceForUser(userID, cue.ResourceID)
 				if err != nil || resource == nil || resource.Status != model.ResourceStatusReady || resource.DurationMs < cue.SourceOffsetMs+cue.EndMs-cue.StartMs {

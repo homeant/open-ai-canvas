@@ -98,6 +98,17 @@ func TestExternalMCPDramaAudioSandbox(t *testing.T) {
 		return cs
 	}
 	cs := connect(key.Token)
+	catalog, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered := map[string]bool{}
+	for _, tool := range catalog.Tools {
+		registered[tool.Name] = true
+	}
+	if !registered["inspect_segment_video_speech"] {
+		t.Fatal("new audio tools missing from MCP discovery")
+	}
 	frameArgs := map[string]any{"dramaId": "sandbox-drama", "episodeId": "sandbox-episode", "segmentIndex": 5, "atSeconds": 0.5}
 	var resourcesBefore int64
 	db.Model(&model.Resource{}).Count(&resourcesBefore)
@@ -191,6 +202,14 @@ func TestExternalMCPDramaAudioSandbox(t *testing.T) {
 	read = call("get_segment_audio", scope, false)
 	if read["qaStatus"] != "rejected" {
 		t.Fatalf("lost rejection %+v", read)
+	}
+	if err := db.Model(&model.DramaTake{}).Where("id = ?", "sandbox-take").Update("shot_revision", shotRevision).Error; err != nil {
+		t.Fatal(err)
+	}
+	nativeArgs := map[string]any{"dramaId": "sandbox-drama", "episodeId": "sandbox-episode", "segmentIndex": 5, "videoTakeId": "sandbox-take", "expectedShotRevision": shotRevision, "expectedAudioRevision": 1, "idempotencyKey": "native-window-inspect"}
+	native := call("inspect_segment_video_speech", nativeArgs, false)
+	if native["accepted"] != false || len(native["shotResults"].([]any)) != 3 || native["version"].(map[string]any)["revision"] != float64(2) {
+		t.Fatalf("native inspection %+v", native)
 	}
 	otherKey, err := svc.CreateUserAPIKey("sandbox-other", "sandbox-other")
 	if err != nil {

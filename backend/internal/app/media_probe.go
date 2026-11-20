@@ -75,6 +75,7 @@ func probeMediaFile(ctx context.Context, path string) (mediaProbeInfo, error) {
 	defer cancel()
 	output, err := hideCommandWindow(exec.CommandContext(ctx, bin,
 		"-v", "error",
+		"-protocol_whitelist", "file,pipe",
 		"-show_entries", "stream=index,codec_type,codec_name,channels,sample_rate,width,height:stream_side_data=rotation:format=duration:format_tags",
 		"-of", "json", path)).Output()
 	if err != nil {

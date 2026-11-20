@@ -2,9 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"yingce/backend/internal/model"
 	"yingce/backend/internal/production"
 )
 
@@ -87,42 +83,30 @@ func (s *Service) InspectDramaAudio(ctx context.Context, userID string, req Insp
 
 func (s *Service) inspectDramaAudioResource(ctx context.Context, userID, resourceID, source string, cue DramaAudioCue, offset int64, streamIndex *int) (DramaAudioInspection, error) {
 	result := DramaAudioInspection{Source: source, ResourceID: resourceID, SourceOffsetMs: offset, StartMs: cue.StartMs, EndMs: cue.EndMs, MeasurementStatus: "unknown", Streams: []DramaMediaStream{}, Alignment: production.AlignAudioText(cue.Text, nil, cue.StartMs, cue.EndMs), SpeakerStatus: "unverified", MouthStatus: "unverified"}
-	resource, body, err := s.OpenResource(userID, resourceID)
-	if err != nil {
-		return result, err
-	}
-	defer body.Close()
-	if resource.Status != model.ResourceStatusReady || !isTranscribableMime(resource.MimeType) {
-		return result, BadAuthRequest("检查资源不是已就绪的音视频")
-	}
-	const limit int64 = 256 << 20
-	if resource.Size > limit {
-		return result, BadAuthRequest("媒体超过音轨检查大小上限")
-	}
-	stop := context.AfterFunc(ctx, func() { _ = body.Close() })
-	defer stop()
 	dir, err := os.MkdirTemp("", "yingce-audio-check-*")
 	if err != nil {
 		return result, err
 	}
 	defer os.RemoveAll(dir)
-	file, err := os.Create(filepath.Join(dir, "input"+extForMime(resource.MimeType)))
+	input, hash, err := s.stageDramaMedia(ctx, userID, resourceID, dir, "input")
 	if err != nil {
 		return result, err
 	}
-	hash := sha256.New()
-	n, copyErr := io.Copy(io.MultiWriter(file, hash), io.LimitReader(body, limit+1))
-	closeErr := file.Close()
-	if copyErr != nil || closeErr != nil || n > limit {
-		return result, BadAuthRequest("媒体读取失败或超过大小上限")
-	}
-	result.ResourceSHA256 = fmt.Sprintf("%x", hash.Sum(nil))
-	info, err := probeMediaFile(ctx, file.Name())
+	result.ResourceSHA256 = hash
+	return s.inspectDramaAudioFile(ctx, input, dir, cue, offset, streamIndex, result)
+}
+
+func (s *Service) inspectDramaAudioFile(ctx context.Context, input, dir string, cue DramaAudioCue, offset int64, streamIndex *int, result DramaAudioInspection) (DramaAudioInspection, error) {
+	info, err := probeMediaFile(ctx, input)
 	if err != nil {
 		result.Error = "媒体探测失败或 ffprobe 不可用；音轨和语音均未验证"
 		return result, nil
 	}
 	result.MeasurementStatus, result.Streams, result.DurationMs = "measured", info.Streams, info.DurationMs
+	if offset+cue.EndMs-cue.StartMs > info.DurationMs {
+		result.Alignment.Status, result.Error = "mismatch", "实际媒体时长不足以覆盖镜头时间窗"
+		return result, nil
+	}
 	audioIndexes := []int{}
 	for _, stream := range info.Streams {
 		if stream.CodecType == "audio" {
@@ -133,6 +117,9 @@ func (s *Service) inspectDramaAudioResource(ctx context.Context, userID, resourc
 	result.HasAudioTrack = &hasAudio
 	if !hasAudio {
 		result.Alignment.Status, result.Error = "mismatch", "该视频没有音轨，不能完成对白／独白"
+		if cue.Kind == "silence" {
+			result.Alignment.Status, result.Error = "matched", ""
+		}
 		return result, nil
 	}
 	selected := audioIndexes[0]
@@ -152,14 +139,14 @@ func (s *Service) inspectDramaAudioResource(ctx context.Context, userID, resourc
 		}
 	}
 	result.StreamIndex = &selected
-	if offset+cue.EndMs-cue.StartMs > info.DurationMs {
-		result.Alignment.Status, result.Error = "mismatch", "实际媒体时长不足以覆盖镜头时间窗"
-		return result, nil
-	}
 	wav := filepath.Join(dir, "excerpt.wav")
 	seconds := func(ms int64) string { return strconv.FormatFloat(float64(ms)/1000, 'f', 3, 64) }
 	// Only the requested time window is recognized; expected dialogue is never sent as an ASR prompt.
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", file.Name(), "-ss", seconds(offset), "-t", seconds(cue.EndMs-cue.StartMs), "-map", "0:"+strconv.Itoa(selected), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav)
+	ffmpeg, err := renderFfmpegBinary()
+	if err != nil {
+		return result, err
+	}
+	cmd := exec.CommandContext(ctx, ffmpeg, "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file,pipe", "-i", input, "-ss", seconds(offset), "-t", seconds(cue.EndMs-cue.StartMs), "-map", "0:"+strconv.Itoa(selected), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav)
 	if _, err := cmd.CombinedOutput(); err != nil {
 		result.Error = "音频片段解码失败或 ffmpeg 不可用；语音未验证"
 		return result, nil
@@ -176,6 +163,9 @@ func (s *Service) inspectDramaAudioResource(ctx context.Context, userID, resourc
 	result.Signal = &signal
 	if signal.DigitalSilence {
 		result.Alignment.Status, result.Error = "mismatch", "目标时窗为数字静音；不使用识别器幻听作为对白证据"
+		if cue.Kind == "silence" {
+			result.Alignment.Status, result.Error = "matched", ""
+		}
 		return result, nil
 	}
 	if signal.LowEnergy {
@@ -201,5 +191,9 @@ func (s *Service) inspectDramaAudioResource(ctx context.Context, userID, resourc
 		phrases = append(phrases, production.AudioPhrase{StartMs: segment.StartMs, EndMs: segment.EndMs, Text: segment.Text, Words: segment.Words})
 	}
 	result.Alignment = production.AlignAudioText(cue.Text, phrases, cue.StartMs, cue.EndMs)
+	if cue.Kind == "silence" && production.NormalizeSpeechText(result.Alignment.RecognizedText) == "" {
+		// An empty recognizer response is not proof that music/noise contains no speech.
+		result.Alignment.Status = "unknown"
+	}
 	return result, nil
 }

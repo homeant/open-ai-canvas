@@ -25,6 +25,7 @@ type DramaAudioQARequest struct {
 	ObservedStartMs int64  `json:"observedStartMs"`
 	ObservedEndMs   int64  `json:"observedEndMs"`
 	MouthState      string `json:"mouthState" jsonschema:"closed/speaking/not_visible/unknown"`
+	ObservedSpeaker string `json:"observedSpeaker,omitempty" jsonschema:"speaker 层通过时须填写实际听审识别的人物名，与预期声源一致"`
 	LipSyncChecked  bool   `json:"lipSyncChecked"`
 	ExpectedCheckID string `json:"expectedCheckId"`
 	IdempotencyKey  string `json:"idempotencyKey"`
@@ -96,6 +97,13 @@ func (s *Service) dramaAudioQA(version *DramaAudioVersionView, target dramaAudio
 			layers = []string{"asr_cue", "asr_video", "speaker", "mouth"}
 		}
 		complete := cue.ResourceID != ""
+		if cue.Source == "native_video" {
+			complete = version.VideoResourceID != ""
+			layers = []string{"asr_video", "mouth"}
+			if cue.Kind == "speech" {
+				layers = append(layers, "speaker")
+			}
+		}
 		states := map[string]string{}
 		for _, layer := range layers {
 			status := latest[cue.ID+":"+layer].Status

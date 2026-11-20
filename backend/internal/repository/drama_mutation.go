@@ -12,6 +12,21 @@ import (
 
 var ErrDramaIdempotencyConflict = errors.New("idempotency key reused with different input")
 
+func (r *Repository) DramaMutationReplay(projectID, episodeID, receiptID, hash string) ([]byte, bool, error) {
+	var receipt model.DramaMutationReceipt
+	err := r.db.Where("id = ? AND project_id = ? AND episode_id = ?", receiptID, projectID, episodeID).First(&receipt).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if receipt.RequestHash != hash {
+		return nil, false, ErrDramaIdempotencyConflict
+	}
+	return []byte(receipt.ResultJSON), true, nil
+}
+
 // DramaMutation serializes edits to one episode and persists the replay result atomically.
 func (r *Repository) DramaMutation(projectID, episodeID, receiptID, hash string, fn func(*Repository) ([]byte, error)) ([]byte, error) {
 	var result []byte

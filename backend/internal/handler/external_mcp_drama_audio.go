@@ -8,6 +8,16 @@ import (
 )
 
 func registerDramaAudioMCP(server *mcp.Server, svc *service.Service, userID string) {
+	externalMCPTool(server, "inspect_segment_video_speech", "对明确 videoTakeId 的真实音轨按全部 shot 时窗检查文本和起止，含无台词窗口。需分镜指纹、最新音轨 revision（首建 0）与幂等键。保存新的原生视频音轨证据版本及逐镜 ASR；不提交生成、不改正式视频。说话人与口型保持未验证，须人工 QA；ASR 不代表最终通过", func(ctx context.Context, input service.InspectDramaVideoSpeechRequest) (any, error) {
+		policy, err := svc.RuntimePolicy()
+		if err != nil {
+			return nil, err
+		}
+		if err := externalMCPAllow(ctx, svc, "audio-inspect:"+userID, policy.Request.TaskCreatePerMinute); err != nil {
+			return nil, err
+		}
+		return svc.InspectDramaVideoSpeech(ctx, userID, input)
+	})
 	externalMCPTool(server, "inspect_segment_audio", "检查明确音轨版本中 speech 片段的实际文件，source=cue 为配音音频，video 为该视频时窗的真实音轨。服务端 ffprobe/ffmpeg/whisper.cpp 识别并保存文件哈希、文本和时间戳比对；缺少 ASR 返回 unknown，字级时间戳缺失为 unavailable。不会推断说话人或口型通过。需幂等键与 expectedCheckId", func(ctx context.Context, input service.InspectDramaAudioRequest) (any, error) {
 		policy, err := svc.RuntimePolicy()
 		if err != nil {

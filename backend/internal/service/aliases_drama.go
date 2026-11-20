@@ -11,6 +11,7 @@ type (
 	DramaAudioScope                   = app.DramaAudioScope
 	DramaAudioQARequest               = app.DramaAudioQARequest
 	InspectDramaAudioRequest          = app.InspectDramaAudioRequest
+	InspectDramaVideoSpeechRequest    = app.InspectDramaVideoSpeechRequest
 	SaveDramaAudioRequest             = app.SaveDramaAudioRequest
 	MutateDramaAudioCueRequest        = app.MutateDramaAudioCueRequest
 	GenerateDramaMCPRequest           = app.GenerateDramaMCPRequest

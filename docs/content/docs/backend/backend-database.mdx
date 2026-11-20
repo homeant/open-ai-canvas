@@ -27,6 +27,8 @@ Schema 114 新增 `drama_audio_versions` 和 `drama_audio_resource_links`。音�
 
 Schema 115 新增 `drama_audio_checks`，只追加保存明确音轨版本、片段、检查层、状态、方法、认证检查人、实际资源和完整文件 SHA-256，以及转写／时间对齐或人工观察证据 JSON。ASR、内容、画面、人物声源、嘴部、音效和最终验收独立记录。最终验收绑定当时检查 ID 集合，后续新证据使旧最终结论失效；分镜变化和新音轨不继承验收。作品／剧集删除同步清理检查。SQLite → PostgreSQL 复制清单同步登记。详见 [后期音轨与验收](/docs/backend/drama-audio-mcp)。
 
+逐镜视频音轨验收复用上述表，不增加迁移。直接视频验收的新版本片段由服务端标记 `source=native_video`，包括内部 `kind=silence` 的无台词窗口；逐窗证据写入既有 `asr_video` 层。该路径不修改正式段视频列。
+
 ## 短剧 MCP 编辑事务（Schema 113）
 
 版本 113 新增 `drama_mutation_receipts`：保存作品／剧集归属、账号与命令作用域的幂等键哈希、请求哈希、原响应 JSON 和创建时间；不保存原始幂等键。回执与原文、整批镜头或提示词写入在同一事务提交，删除剧集／作品时清理回执。SQLite → PostgreSQL 迁移清单同步登记该表。
