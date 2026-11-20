@@ -895,6 +895,7 @@ func (s *Service) fillDramaSegmentViews(projectID string, p *model.DramaProducti
 		}
 		request, _, _, prepareErr := s.prepareDramaSegment(settings, draft, rows[i], previous, castByID)
 		if prepareErr != nil {
+			request.PreparationError = prepareErr.Error()
 			request.Warning = prepareErr.Error()
 			// 视频模型下线、时长超限等会让预演在列参考图前返回。镜头里的设定引用仍在，照常列出并标为未发送；
 			// 否则制作台看起来像资产引用丢了，在参考面板勾选候选还会把本段存成只含该项的手动列表。
@@ -1009,7 +1010,7 @@ func buildDramaSegmentDrafts(settings DramaSettings, meta dramaBibleMeta, shots 
 			if _, ok := castByID[shot.SceneCastID]; ok && !containsString(sceneIDs, shot.SceneCastID) {
 				sceneIDs = append(sceneIDs, shot.SceneCastID)
 			}
-			input.Shots = append(input.Shots, production.SegmentShot{Scene: shot.Scene, ShotSize: shot.ShotSize, Camera: shot.Camera, ImagePrompt: shot.ImagePrompt, Action: shot.Action, VideoPrompt: shot.VideoPrompt, Speaker: shot.Speaker, Dialogue: shot.Dialogue, DurationMs: shot.DurationMs, Transition: settings.Storyboard.EffectiveTransition(shot.Transition, shot.Position == 0)})
+			input.Shots = append(input.Shots, production.SegmentShot{Scene: shot.Scene, ShotSize: shot.ShotSize, Camera: shot.Camera, ImagePrompt: shot.ImagePrompt, Action: shot.Action, VideoPrompt: shot.VideoPrompt, Speaker: shot.Speaker, Dialogue: shot.Dialogue, DialogueMode: shot.DialogueMode, DurationMs: shot.DurationMs, Transition: settings.Storyboard.EffectiveTransition(shot.Transition, shot.Position == 0)})
 		}
 		referenceIDs := append(append(characterIDs, propIDs...), sceneIDs...)
 		view.ReferenceMode = "auto"
@@ -1020,6 +1021,19 @@ func buildDramaSegmentDrafts(settings DramaSettings, meta dramaBibleMeta, shots 
 				if _, exists := castByID[id]; exists && !containsString(referenceIDs, id) {
 					referenceIDs = append(referenceIDs, id)
 				}
+			}
+		}
+		for _, shot := range group {
+			for _, image := range dramaShotImages(shot) {
+				ref := DramaSegmentReference{ShotID: shot.ID, ResourceID: image.ResourceID, Role: image.Role, Kind: "image", Name: image.Name, Required: true, InputOrder: -1, CanvasID: image.CanvasID, NodeID: image.NodeID, NodeHash: image.NodeHash}
+				if image.Role == "information" {
+					ref.Label = fmt.Sprintf("参考图%d", len(view.Request.References)+1)
+					view.Request.References = append(view.Request.References, ref)
+					input.References = append(input.References, production.SegmentReference{Label: ref.Label, Kind: "image", Name: ref.Name, Detail: "镜头 " + shot.ID + " 的实体信息图；文字、读数和实体位置以图为准，动态产物仍须验收"})
+				} else {
+					input.References = append(input.References, production.SegmentReference{Label: "首帧图", Kind: "image", Name: ref.Name, Detail: "指定镜头首帧，必须核对生成方式与段首位置"})
+				}
+				view.Request.ShotImages = append(view.Request.ShotImages, ref)
 			}
 		}
 		for _, id := range referenceIDs {
@@ -1058,9 +1072,12 @@ func buildDramaSegmentViews(settings DramaSettings, meta dramaBibleMeta, shots [
 	views := make([]DramaSegmentView, 0, len(drafts))
 	for _, draft := range drafts {
 		view := draft.view
+		view.ShotRevision = dramaShotRevision(shots, view.Index)
 		view.AudioReferenceMode = "auto"
 		view.PromptStatus = "none"
 		if row, ok := rowByIndex[view.Index]; ok {
+			view.PromptRevision, view.PromptShotRevision, view.CandidateID, view.CandidateShotRevision = row.PromptRevision, row.PromptShotRevision, row.CandidateID, row.CandidateShotRevision
+			view.PromptSeconds = row.PromptSeconds
 			if strings.TrimSpace(row.AudioCastIDsJSON) != "" {
 				view.AudioReferenceMode = "custom"
 			}

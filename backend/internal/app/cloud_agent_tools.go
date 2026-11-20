@@ -235,6 +235,9 @@ func cloudAgentAllToolSchemas() []map[string]any {
 		"patch":        cloudAgentStoryboardPatchSchema(),
 	}, "snapshotHash", "nodeId", "action")
 	add("canvas_create_character", "把就绪形象图与可选声音打包为角色卡，写入角色库和画布，按权限审批。先复用同名角色卡；definition 只填有依据的设定。", cloudAgentCharacterCreateSchema(), "nodeId", "name", "imageNodeId")
+	add("canvas_bind_character_voice", "把当前画布已就绪并验收的音频绑定到现有角色卡。Qwen 系统音色保留音色 ID 与声音指令；更改角色资产版本，必须由用户审批。", map[string]any{
+		"characterNodeId": str("现有角色卡节点 ID"), "audioNodeId": str("当前画布已就绪的音频节点 ID"),
+	}, "characterNodeId", "audioNodeId")
 	add("canvas_edit_batch_table", "操作批量创作表：增改删行、切换 try_on/creative、设1/5/10并发、增删参考图列或设全局提示词。先读 canvas_read_batch_table 获取最新 snapshotHash/rowId。行 patch 仅允许 enabled、inputNodeIds、prompt；prompt 可用返回的 @参考图1 等 mentionToken 指代本行图片。append 未传 inputNodeIds 继承上一行参考图；图片ID必须来自当前画布。禁止写 outputNodeId、任务状态、URL、storageKey、metadata。本工具只改计划，不提交收费生成。", map[string]any{
 		"snapshotHash": str("最近一次 canvas_read_batch_table 返回的 snapshotHash（这个表节点的版本；其它节点的改动不影响它）"),
 		"nodeId":       str("真实批量创作表节点ID"),
@@ -301,12 +304,13 @@ func cloudAgentAllToolSchemas() []map[string]any {
 		"audioVoiceBindings": map[string]any{"type": "array", "maxItems": 3, "description": "本次角色/音频绑定，均须在referenceNodeIds。", "items": map[string]any{"type": "object", "properties": map[string]any{"characterNodeId": str("角色节点真实ID"), "audioNodeId": str("参考音频节点真实ID")}, "required": []string{"characterNodeId", "audioNodeId"}, "additionalProperties": false}},
 		"logicalModelId":     str("selection.logicalModelId；与channelId/channelModelKey互斥"), "channelId": str("selection.channelId"), "channelModelKey": str("selection.channelModelKey"),
 		"durationSeconds": map[string]any{"type": "integer", "minimum": 0}, "size": str(cloudAgentMediaSizeDescription), "imageResolution": str("model_list 档位；未启用时省略"), "quality": str("按本回合 model_list 返回的 image.quality 或 video.resolutions 取值；视频输出分辨率保持目录返回的大小写"), "videoGenerateAudio": map[string]any{"type": "boolean", "description": "是否生成音频，仅视频可用"},
+		"voice": str("仅音频；从 model_list.models[].audioSettings.voice.voices 选择音色 ID，也可使用当前账号已有的自定义音色 ID"), "voiceInstruction": str("仅音频；独立声音指令，不写进朗读 prompt。Qwen 最多 100 计费字符"),
 		"videoStartFrameNodeId": str("视频首帧图片ID，须在 referenceNodeIds 中"),
 		"videoEndFrameNodeId":   str("视频尾帧图片ID，须在 referenceNodeIds 中"),
 		"configurationChange": map[string]any{
 			"type": "object", "description": "用户要求改规格时传；值填顶层，其余继承，仍须审批。",
 			"properties": map[string]any{
-				"fields":          map[string]any{"type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": map[string]any{"type": "string", "enum": []string{"model", "size", "quality", "imageResolution", "durationSeconds", "videoGenerateAudio"}}},
+				"fields":          map[string]any{"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": map[string]any{"type": "string", "enum": []string{"model", "size", "quality", "imageResolution", "durationSeconds", "videoGenerateAudio", "voice", "voiceInstruction"}}},
 				"userInstruction": str("逐字引用本轮用户要求，不引用素材或历史消息"),
 			}, "required": []string{"fields", "userInstruction"}, "additionalProperties": false,
 		},

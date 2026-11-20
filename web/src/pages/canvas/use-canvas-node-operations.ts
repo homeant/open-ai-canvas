@@ -1,12 +1,13 @@
 import { translate } from "@/i18n";
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { createElement, useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 import copyToClipboard from "copy-to-clipboard";
 import { nanoid } from "nanoid";
 
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { FOLDER_COLLAPSED_HEIGHT, FOLDER_COLLAPSED_WIDTH, FRAME_HEADER_HEIGHT, getFrameChildIds, getFrameChildren, isFrameNode } from "@/lib/canvas/canvas-frame";
-import { alignCanvasNodes, layoutCanvasAuto, layoutCanvasFlow, layoutCanvasNodes, nextCanvasVersionLabel, spreadCanvasNodes, type CanvasAlignmentMode } from "@/lib/canvas/canvas-layout";
+import { alignCanvasNodes, nextCanvasVersionLabel, type CanvasAlignmentMode } from "@/lib/canvas/canvas-layout";
+import { arrangeCanvasDocument, CANVAS_ARRANGE_OPTIONS, placeCanvasIncomingNodes, type CanvasArrangeMode } from "@/lib/canvas/canvas-smart-layout";
 import { applyCanvasConnectionPromptSync } from "@/lib/canvas/canvas-resource-references";
 import { createCanvasNode, isHiddenBatchChild, removeCanvasNodes } from "@/lib/canvas/canvas-project-domain";
 import { isolateCopiedNodeMetadata, nextCopiedNodeTitle } from "@/lib/canvas/canvas-node-copy";
@@ -38,6 +39,9 @@ type UseCanvasNodeOperationsOptions = {
     connectionsRef: { current: CanvasConnection[] };
     selectedNodeIdsRef: { current: Set<string> };
     getCanvasCenter: () => Position;
+    commitNodeArrangement?: (nodes: CanvasNodeData[]) => void;
+    onArrangementFocus?: (nodes: CanvasNodeData[]) => void;
+    onUndoArrangement?: () => void;
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
     setConnections: Dispatch<SetStateAction<CanvasConnection[]>>;
     setSelectedNodeIds: Dispatch<SetStateAction<Set<string>>>;
@@ -54,6 +58,9 @@ export function useCanvasNodeOperations({
     connectionsRef,
     selectedNodeIdsRef,
     getCanvasCenter,
+    commitNodeArrangement,
+    onArrangementFocus,
+    onUndoArrangement,
     setNodes,
     setConnections,
     setSelectedNodeIds,
@@ -71,7 +78,15 @@ export function useCanvasNodeOperations({
     const markerWritePendingRef = useRef(false);
     const markerWriteSequenceRef = useRef(0);
     const internalMarkerWriteRef = useRef(false);
+    const lastArrangementRef = useRef<CanvasNodeData[] | null>(null);
     const [hasCopiedNodes, setHasCopiedNodes] = useState(false);
+
+    useEffect(() => {
+        if (lastArrangementRef.current && lastArrangementRef.current !== nodesRef.current) {
+            message.destroy("canvas-arrangement");
+            lastArrangementRef.current = null;
+        }
+    });
 
     const releaseCopiedNodesPastePriority = useCallback(() => {
         if (internalMarkerWriteRef.current) return;
@@ -153,7 +168,7 @@ export function useCanvasNodeOperations({
                 : undefined;
         const node = createCanvasNode(type, position || getCanvasCenter(), metadata);
         if (workflowTitle) node.title = workflowTitle;
-        commitNodes([...nodesRef.current, node]);
+        commitNodes([...nodesRef.current, ...placeCanvasIncomingNodes(nodesRef.current, [node])]);
         selectNodes(new Set([node.id]));
         if (type === CanvasNodeType.Script) setDialogNodeId(null);
         if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Script && type !== CanvasNodeType.BatchTable && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Frame && type !== CanvasNodeType.Drawing && type !== CanvasNodeType.MediaConversion) setDialogNodeId(node.id);
@@ -177,59 +192,39 @@ export function useCanvasNodeOperations({
         folder.title = linked?.title || translate("canvasPage.nodeOps.myFiles");
         folder.width = FOLDER_COLLAPSED_WIDTH;
         folder.height = FOLDER_COLLAPSED_HEIGHT;
-        commitNodes([...nodesRef.current, folder]);
+        commitNodes([...nodesRef.current, ...placeCanvasIncomingNodes(nodesRef.current, [folder])]);
         selectNodes(new Set([folder.id]));
         message.success(linked ? translate("canvasPage.nodeOps.assetFolderPlaced") : translate("canvasPage.nodeOps.folderCreated"));
     }, [commitNodes, getCanvasCenter, message, nodesRef, selectNodes]);
 
-    const arrangeSelectedNodes = useCallback((mode: "row" | "column" | "grid" | "flow") => {
-        const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id) && !node.metadata?.locked && !isFrameNode(node));
-        if (selected.length < 2) return;
-        const positions = mode === "flow" ? layoutCanvasFlow(selected, connectionsRef.current) : layoutCanvasNodes(selected, mode);
-        commitNodes(nodesRef.current.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id)! } : node));
-        message.success(mode === "flow" ? translate("canvasPage.nodeOps.arrangedByFlow") : translate("canvasPage.nodeOps.arrangedSelection"));
-    }, [commitNodes, connectionsRef, message, nodesRef, selectedNodeIdsRef]);
-
-    const autoArrangeCanvasNodes = useCallback(() => {
-        const currentNodes = nodesRef.current;
-        const selectedIds = selectedNodeIdsRef.current;
-        const hasSelection = selectedIds.size > 0;
-        const candidates = currentNodes.filter((node) => {
-            if (node.metadata?.locked || isFrameNode(node) || isHiddenBatchChild(node, currentNodes)) return false;
-            if (hasSelection) return selectedIds.has(node.id);
-            return !node.parentId;
-        });
-        if (candidates.length < 2) {
-            message.info(hasSelection ? translate("canvasPage.nodeOps.selectTwoArrangeable") : translate("canvasPage.nodeOps.canvasNeedsTwo"));
+    const autoArrangeCanvasNodes = useCallback((mode: CanvasArrangeMode = "auto") => {
+        const result = arrangeCanvasDocument(nodesRef.current, connectionsRef.current, { mode, selectedIds: selectedNodeIdsRef.current });
+        if (!result.unitCount) {
+            message.info(result.lockedCount ? "所选节点已锁定，解锁后可整理" : "画布中没有可整理的节点");
             return;
         }
-
-        // 不参与整理但仍然可见的节点（框架、锁定节点、选区外节点）作为障碍，整理结果绕开它们。
-        const candidateIds = new Set(candidates.map((node) => node.id));
-        const nodeById = new Map(currentNodes.map((node) => [node.id, node]));
-        const obstacles = currentNodes.filter((node) => {
-            if (candidateIds.has(node.id) || isHiddenBatchChild(node, currentNodes)) return false;
-            const parent = node.parentId ? nodeById.get(node.parentId) : undefined;
-            // 框架子节点由框架外框代表；折叠框架里的子节点不可见。
-            return !parent || !isFrameNode(parent);
-        });
-        const positions = layoutCanvasAuto(candidates, connectionsRef.current, obstacles);
-        commitNodes(currentNodes.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id)! } : node));
-        message.success(hasSelection ? translate("canvasPage.nodeOps.arrangedSelection") : translate("canvasPage.nodeOps.arrangedCanvas"));
-    }, [commitNodes, connectionsRef, message, nodesRef, selectedNodeIdsRef]);
-
-    const spreadSelectedNodes = useCallback(() => {
-        const currentNodes = nodesRef.current;
-        const selected = currentNodes.filter((node) => selectedNodeIdsRef.current.has(node.id) && !node.metadata?.locked && !isFrameNode(node) && !isHiddenBatchChild(node, currentNodes));
-        if (selected.length < 2) {
-            message.info(translate("canvasPage.nodeOps.selectTwoArrangeable"));
+        if (!result.movedCount) {
+            message.info("节点已排列整齐，无需移动");
             return;
         }
-        const positions = spreadCanvasNodes(selected);
-        if (!positions.size) return;
-        commitNodes(currentNodes.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id)! } : node));
-        message.success(translate("canvasPage.nodeOps.spacingIncreased"));
-    }, [commitNodes, message, nodesRef, selectedNodeIdsRef]);
+        nodesRef.current = result.nodes;
+        lastArrangementRef.current = result.nodes;
+        if (commitNodeArrangement) commitNodeArrangement(result.nodes);
+        else commitNodes(result.nodes);
+        onArrangementFocus?.(result.focusNodes);
+        setContextMenu(null);
+        const label = CANVAS_ARRANGE_OPTIONS.find((option) => option.mode === mode)!.label;
+        message.success({
+            content: createElement("span", { className: "inline-flex items-center gap-3" },
+                `${label}：已移动 ${result.movedCount} 个节点${result.lockedCount ? `，保留 ${result.lockedCount} 个锁定组` : ""}`,
+                onUndoArrangement ? createElement("button", { type: "button", className: "underline underline-offset-4 focus-visible:outline", onClick: () => { if (nodesRef.current === result.nodes) onUndoArrangement(); message.destroy("canvas-arrangement"); } }, "撤销") : null),
+            key: "canvas-arrangement",
+            duration: 6,
+        });
+    }, [commitNodeArrangement, commitNodes, connectionsRef, message, nodesRef, onArrangementFocus, onUndoArrangement, selectedNodeIdsRef, setContextMenu]);
+
+    const arrangeSelectedNodes = autoArrangeCanvasNodes;
+    const spreadSelectedNodes = useCallback(() => autoArrangeCanvasNodes("separate"), [autoArrangeCanvasNodes]);
 
     const alignSelectedNodes = useCallback((mode: CanvasAlignmentMode) => {
         const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id) && !node.metadata?.locked && !isFrameNode(node));
@@ -394,7 +389,7 @@ export function useCanvasNodeOperations({
         const versionRootId = duplicateMode === "variant" && !isFrameNode(source) && !independentVideoVariant ? source.metadata?.versionOfNodeId || source.id : undefined;
         const versionLabel = versionRootId ? nextCanvasVersionLabel(versionRootId, nodesRef.current) : undefined;
         const copyTitle = duplicateMode !== "variant" ? nextCopiedNodeTitle(source.title, nodesRef.current.map((node) => node.title)) : undefined;
-        const copiedNodes = sources.map((node) => {
+        const copiedNodes = placeCanvasIncomingNodes(nodesRef.current, sources.map((node) => {
             const metadata = isolateCopiedNodeMetadata(node, idMap, {
                 clearMediaResult: independentVideoVariant && node.type === CanvasNodeType.Video,
                 preserveExternalReferences: independentVideoVariant && node.type === CanvasNodeType.Video,
@@ -420,7 +415,7 @@ export function useCanvasNodeOperations({
                 parentId: node.id === source.id && detachIndependentVideoParent ? undefined : node.parentId ? idMap.get(node.parentId) || node.parentId : undefined,
                 metadata,
             };
-        });
+        }));
         const copiedIds = new Set(sources.map((node) => node.id));
         const copiedConnections = connectionsRef.current
             .filter((connection) => copiedIds.has(connection.fromNodeId) && copiedIds.has(connection.toNodeId))
@@ -563,7 +558,7 @@ export function useCanvasNodeOperations({
         const idMap = new Map(clipboard.nodes.map((node, index) => [node.id, `${node.type}-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`]));
         const copiedSourceIds = new Set(clipboard.nodes.map((node) => node.id));
         const reservedTitles = new Set(nodesRef.current.map((node) => node.title));
-        const nextNodes = clipboard.nodes.map((node) => {
+        const nextNodes = placeCanvasIncomingNodes(nodesRef.current, clipboard.nodes.map((node) => {
             const metadata = isolateCopiedNodeMetadata(node, idMap);
             const title = nextCopiedNodeTitle(node.title, reservedTitles);
             reservedTitles.add(title);
@@ -582,7 +577,7 @@ export function useCanvasNodeOperations({
                 parentId: node.parentId ? idMap.get(node.parentId) : undefined,
                 metadata,
             };
-        });
+        }));
         // 1) 剪贴板内部连线；2) 仍保留到画布上未复制参考节点的入边（只复制结果节点时常见）。
         const nextConnections = clipboard.connections.flatMap((connection, index) => {
             const fromNodeId = idMap.get(connection.fromNodeId);

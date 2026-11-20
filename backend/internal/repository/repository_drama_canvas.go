@@ -222,5 +222,27 @@ func (r *Repository) dramaResourceReferences(userID string, resourceIDs []string
 	for _, take := range takes {
 		references = append(references, ResourceDirectReference{Kind: DramaResourceReferenceKind, ID: take.ID, Title: "短剧版本", ResourceID: take.ResourceID})
 	}
+	var audioLinks []model.DramaAudioResourceLink
+	var shots []model.DramaShot
+	if err := r.db.Select("id", "image_references_json").Where("project_id IN (?) AND image_references_json IS NOT NULL AND image_references_json <> ''", projects).Find(&shots).Error; err != nil {
+		return nil, err
+	}
+	for _, shot := range shots {
+		var refs []model.DramaShotImageReference
+		if err := json.Unmarshal([]byte(shot.ImageReferencesJSON), &refs); err != nil {
+			return nil, err
+		}
+		for _, ref := range refs {
+			if _, ok := wanted[ref.ResourceID]; ok {
+				references = append(references, ResourceDirectReference{Kind: DramaResourceReferenceKind, ID: shot.ID, Title: "镜头实体信息图", ResourceID: ref.ResourceID})
+			}
+		}
+	}
+	if err := r.db.Where("project_id IN (?) AND resource_id IN ?", projects, resourceIDs).Find(&audioLinks).Error; err != nil {
+		return nil, err
+	}
+	for _, link := range audioLinks {
+		references = append(references, ResourceDirectReference{Kind: DramaResourceReferenceKind, ID: link.VersionID, Title: "短剧音轨版本", ResourceID: link.ResourceID})
+	}
 	return references, nil
 }

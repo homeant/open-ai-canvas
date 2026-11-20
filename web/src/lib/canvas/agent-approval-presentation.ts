@@ -52,6 +52,7 @@ function operation(value: unknown): AgentApprovalPreviewOperation | null {
         value === "create_storyboard" ||
         value === "edit_storyboard" ||
         value === "create_character" ||
+        value === "bind_character_voice" ||
         value === "plan_step" ||
         value === "adopt_drama_media"
         ? value

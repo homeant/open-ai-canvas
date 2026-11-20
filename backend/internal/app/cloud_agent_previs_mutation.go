@@ -30,6 +30,7 @@ const (
 type cloudAgentPrevisSceneCreateArgs struct {
 	CanvasSnapshotHash string `json:"canvasSnapshotHash"`
 	SceneID            string `json:"sceneId"`
+	EpisodeID          string `json:"episodeId,omitempty"`
 	Title              string `json:"title"`
 	TemplateID         string `json:"templateId"`
 	NodeID             string `json:"nodeId,omitempty"`
@@ -39,61 +40,79 @@ type cloudAgentPrevisSceneCreateArgs struct {
 type cloudAgentPrevisApplyPatchArgs struct {
 	SnapshotHash string                           `json:"snapshotHash"`
 	SceneID      string                           `json:"sceneId"`
+	EpisodeID    string                           `json:"episodeId,omitempty"`
 	Operations   []cloudAgentPrevisPatchOperation `json:"operations"`
 }
 
 // cloudAgentPrevisPatchOperation is deliberately a closed semantic contract.
 // It has no generic path, metadata, URL, storage key or raw scene field.
 type cloudAgentPrevisPatchOperation struct {
-	Type      string  `json:"type"`
-	ID        string  `json:"id"`
-	Name      *string `json:"name"`
-	Title     *string `json:"title"`
-	Kind      string  `json:"kind"`
-	Primitive string  `json:"primitive"`
-	Archetype string  `json:"archetype"` // adult/child/elderly/man/woman/monster
-	Color     *string `json:"color"`
-	ParentID  *string `json:"parentId"`
-	Visible   *bool   `json:"visible"`
-	Pose      string  `json:"pose"`
-	Motion    string  `json:"motion"`
+	Type            string     `json:"type"`
+	ID              string     `json:"id"`
+	Name            *string    `json:"name,omitempty"`
+	Title           *string    `json:"title,omitempty"`
+	Kind            string     `json:"kind,omitempty"`
+	ResourceID      *string    `json:"resourceId,omitempty"`
+	GLTFNodeIndex   *int       `json:"gltfNodeIndex,omitempty"`
+	DramaCastID     *string    `json:"dramaCastId,omitempty"`
+	Primitive       string     `json:"primitive,omitempty"`
+	Archetype       string     `json:"archetype,omitempty"` // adult/child/elderly/man/woman/monster
+	Color           *string    `json:"color,omitempty"`
+	ParentID        *string    `json:"parentId,omitempty"`
+	Visible         *bool      `json:"visible,omitempty"`
+	Pose            string     `json:"pose,omitempty"`
+	Motion          string     `json:"motion,omitempty"`
+	ShotID          string     `json:"shotId,omitempty"`
+	Bone            string     `json:"bone,omitempty"`
+	Quaternion      *[]float64 `json:"quaternion,omitempty"`
+	ConstraintID    string     `json:"constraintId,omitempty"`
+	Effector        string     `json:"effector,omitempty"`
+	StartTime       *float64   `json:"startTime,omitempty"`
+	EndTime         *float64   `json:"endTime,omitempty"`
+	Tolerance       *float64   `json:"tolerance,omitempty"`
+	SurfaceObjectID *string    `json:"surfaceObjectId,omitempty"`
 
-	CharacterAssetID   *string `json:"characterAssetId"`
-	CharacterVersionID *string `json:"characterVersionId"`
-	ReferenceNodeID    *string `json:"referenceNodeId"`
-	CharacterName      *string `json:"characterName"`
+	CharacterAssetID   *string `json:"characterAssetId,omitempty"`
+	CharacterVersionID *string `json:"characterVersionId,omitempty"`
+	ReferenceNodeID    *string `json:"referenceNodeId,omitempty"`
+	CharacterName      *string `json:"characterName,omitempty"`
 
-	Position *[]float64 `json:"position"`
-	Rotation *[]float64 `json:"rotation"`
-	Scale    *[]float64 `json:"scale"`
-	Target   *[]float64 `json:"target"`
+	Position *[]float64 `json:"position,omitempty"`
+	Rotation *[]float64 `json:"rotation,omitempty"`
+	Scale    *[]float64 `json:"scale,omitempty"`
+	Target   *[]float64 `json:"target,omitempty"`
 
-	KeyframeID   *string     `json:"keyframeId"`
-	Time         *float64    `json:"time"`
-	Easing       string      `json:"easing"`
-	PathPoints   [][]float64 `json:"pathPoints"`
-	PathSpeed    string      `json:"pathSpeed"`
-	StartDelay   *float64    `json:"startDelay"`
-	OrientToPath *bool       `json:"orientToPath"`
+	KeyframeID   *string     `json:"keyframeId,omitempty"`
+	Time         *float64    `json:"time,omitempty"`
+	Easing       string      `json:"easing,omitempty"`
+	PathPoints   [][]float64 `json:"pathPoints,omitempty"`
+	PathSpeed    string      `json:"pathSpeed,omitempty"`
+	StartDelay   *float64    `json:"startDelay,omitempty"`
+	OrientToPath *bool       `json:"orientToPath,omitempty"`
 
-	CameraID    *string  `json:"cameraId"`
-	Duration    *float64 `json:"duration"`
-	FPS         *int     `json:"fps"`
-	ShotSize    string   `json:"shotSize"`
-	CameraMove  string   `json:"cameraMove"`
-	Prompt      *string  `json:"prompt"`
-	FocalLength *float64 `json:"focalLength"`
+	CameraID         *string  `json:"cameraId,omitempty"`
+	DramaShotID      *string  `json:"dramaShotId,omitempty"`
+	AspectRatio      *string  `json:"aspectRatio,omitempty"`
+	ObjectID         *string  `json:"objectId,omitempty"`
+	RenderResourceID *string  `json:"renderResourceId,omitempty"`
+	RenderKind       *string  `json:"renderKind,omitempty"`
+	Duration         *float64 `json:"duration,omitempty"`
+	FPS              *int     `json:"fps,omitempty"`
+	ShotSize         string   `json:"shotSize,omitempty"`
+	CameraMove       string   `json:"cameraMove,omitempty"`
+	Prompt           *string  `json:"prompt,omitempty"`
+	FocalLength      *float64 `json:"focalLength,omitempty"`
 
-	LightType  *string  `json:"lightType"`
-	Intensity  *float64 `json:"intensity"`
-	Angle      *float64 `json:"angle"`
-	Penumbra   *float64 `json:"penumbra"`
-	CastShadow *bool    `json:"castShadow"`
+	LightType  *string  `json:"lightType,omitempty"`
+	Intensity  *float64 `json:"intensity,omitempty"`
+	Angle      *float64 `json:"angle,omitempty"`
+	Penumbra   *float64 `json:"penumbra,omitempty"`
+	CastShadow *bool    `json:"castShadow,omitempty"`
 
-	Background           *string  `json:"background"`
-	EnvironmentIntensity *float64 `json:"environmentIntensity"`
-	GridVisible          *bool    `json:"gridVisible"`
-	ActiveShotID         *string  `json:"activeShotId"`
+	Background           *string  `json:"background,omitempty"`
+	EnvironmentIntensity *float64 `json:"environmentIntensity,omitempty"`
+	GridVisible          *bool    `json:"gridVisible,omitempty"`
+	ActiveShotID         *string  `json:"activeShotId,omitempty"`
 }
 
 type cloudAgentPrevisMutationPlan struct {
@@ -129,11 +148,20 @@ func cloudAgentPrevisSceneCreateSchema() map[string]any {
 func cloudAgentPrevisPatchOperationSchema() map[string]any {
 	vec3 := map[string]any{"type": "array", "minItems": 3, "maxItems": 3, "items": map[string]any{"type": "number"}}
 	properties := map[string]any{
-		"type":               map[string]any{"type": "string", "enum": []string{"scene_update", "shot_add", "shot_update", "shot_remove", "object_add", "object_update", "object_remove", "object_keyframe_upsert", "object_keyframe_remove", "object_motion_path_set", "object_motion_path_clear", "actor_motion_add", "actor_motion_remove", "camera_add", "camera_update", "camera_remove", "camera_keyframe_upsert", "camera_keyframe_remove", "light_add", "light_update", "light_remove"}},
+		"type":               map[string]any{"type": "string", "enum": []string{"scene_update", "shot_add", "shot_update", "shot_remove", "shot_object_set", "shot_object_clear", "shot_render_set", "object_add", "object_update", "object_remove", "object_keyframe_upsert", "object_keyframe_remove", "object_motion_path_set", "object_motion_path_clear", "actor_motion_add", "actor_motion_remove", "camera_add", "camera_update", "camera_remove", "camera_keyframe_upsert", "camera_keyframe_remove", "light_add", "light_update", "light_remove"}},
+		"objectId":           map[string]any{"type": "string", "maxLength": 80},
+		"renderResourceId":   map[string]any{"type": "string", "maxLength": 80},
+		"renderKind":         map[string]any{"type": "string", "enum": []string{"frame", "video"}},
 		"id":                 map[string]any{"type": "string", "maxLength": 80, "description": "目标或新建资源 ID"},
+		"shotId":             map[string]any{"type": "string", "maxLength": 80, "description": "对象姿态/变换/动画的镜头作用域；省略为场景全局。逐镜编辑必须指定"},
 		"name":               map[string]any{"type": "string", "maxLength": cloudAgentPrevisTextLimit},
 		"title":              map[string]any{"type": "string", "maxLength": cloudAgentPrevisTextLimit},
-		"kind":               map[string]any{"type": "string", "enum": []string{"primitive", "actor"}},
+		"kind":               map[string]any{"type": "string", "enum": []string{"primitive", "actor", "model"}},
+		"resourceId":         map[string]any{"type": "string", "maxLength": 80},
+		"gltfNodeIndex":      map[string]any{"type": "integer", "minimum": 0},
+		"dramaCastId":        map[string]any{"type": "string", "maxLength": 80},
+		"dramaShotId":        map[string]any{"type": "string", "maxLength": 80},
+		"aspectRatio":        map[string]any{"type": "string", "enum": []string{"auto", "2.39:1", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}},
 		"primitive":          map[string]any{"type": "string", "enum": []string{"box", "sphere", "cylinder", "plane", "character"}},
 		"archetype":          map[string]any{"type": "string", "enum": []string{"adult", "child", "elderly", "man", "woman", "monster"}, "description": "演员体型原型"},
 		"characterAssetId":   map[string]any{"type": "string", "maxLength": 120},
@@ -174,6 +202,11 @@ func cloudAgentPrevisPatchOperationSchema() map[string]any {
 		"gridVisible":          map[string]any{"type": "boolean"},
 		"activeShotId":         map[string]any{"type": "string", "maxLength": 80},
 	}
+	for key, value := range previsRigSchemaProperties() {
+		properties[key] = value
+	}
+	typeSchema := properties["type"].(map[string]any)
+	typeSchema["enum"] = append(typeSchema["enum"].([]string), previsRigOperations...)
 	return map[string]any{"type": "object", "properties": properties, "required": []string{"type", "id"}, "additionalProperties": false}
 }
 
@@ -597,6 +630,32 @@ func cloudAgentPrevisValidateScene(scene map[string]any) error {
 		}
 	}
 	for id, shot := range shotByID {
+		seenStates := map[string]bool{}
+		for _, state := range creationMaps(shot["objectStates"]) {
+			objectID := stringValue(state["objectId"])
+			if objectByID[objectID] == nil || seenStates[objectID] {
+				return BadAuthRequest("镜头对象状态引用无效或重复")
+			}
+			seenStates[objectID] = true
+			if err := validatePrevisObjectTrack(previsShotObject(objectByID[objectID], shot), numberValue(shot["duration"], 5)); err != nil {
+				return err
+			}
+			for _, constraint := range creationMaps(previsShotObject(objectByID[objectID], shot)["contactConstraints"]) {
+				if surface := stringValue(constraint["surfaceObjectId"]); surface != "" && (objectByID[surface] == nil || surface == objectID) {
+					return BadAuthRequest("接触约束引用的面对象不存在或为自身")
+				}
+			}
+			if transform, ok := state["transform"]; ok {
+				if err := cloudAgentPrevisValidateTransform(transform, "镜头对象状态"); err != nil {
+					return err
+				}
+			}
+		}
+		if ratio := stringValue(shot["aspectRatio"]); ratio != "" {
+			if err := cloudAgentPrevisValidateEnum(ratio, "镜头画幅", "auto", "2.39:1", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"); err != nil {
+				return err
+			}
+		}
 		cameraID := stringValue(shot["cameraId"])
 		if cameraByID[cameraID] == nil {
 			return BadAuthRequest("导演镜头 " + id + " 引用了不存在的摄影机")
@@ -679,6 +738,11 @@ func cloudAgentPrevisSceneCreateTemplate(args cloudAgentPrevisSceneCreateArgs) (
 	if err := cloudAgentPrevisValidateTemplateID(args.TemplateID); err != nil {
 		return nil, err
 	}
+	if args.EpisodeID != "" {
+		if err := validateCloudAgentID(args.EpisodeID, "剧集 ID", 80); err != nil {
+			return nil, err
+		}
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	cameraID := args.SceneID + "-camera-1"
 	shotID := args.SceneID + "-shot-1"
@@ -751,8 +815,11 @@ func cloudAgentPrevisSceneCreateTemplate(args cloudAgentPrevisSceneCreateArgs) (
 	scene := map[string]any{
 		"id": args.SceneID, "version": 1, "title": args.Title, "background": "#d8dde3", "environmentIntensity": 0.7, "gridVisible": true,
 		"objects": objects, "cameras": []any{camera}, "lights": lights,
-		"shots":        []any{map[string]any{"id": shotID, "name": "镜头 1", "cameraId": cameraID, "duration": 5, "fps": 24, "shotSize": "medium", "cameraMove": "static", "prompt": "", "cuts": []any{}}},
+		"shots":        []any{map[string]any{"id": shotID, "name": "镜头 1", "cameraId": cameraID, "duration": 5, "fps": 24, "aspectRatio": "9:16", "shotSize": "medium", "cameraMove": "static", "prompt": "", "cuts": []any{}}},
 		"activeShotId": shotID, "createdAt": now, "updatedAt": now,
+	}
+	if args.EpisodeID != "" {
+		scene["episodeId"] = args.EpisodeID
 	}
 	return scene, cloudAgentPrevisValidateScene(scene)
 }
@@ -992,14 +1059,25 @@ func prepareCloudAgentPrevisApplyPatch(repo *repository.Repository, userID, canv
 	if !ok {
 		return nil, BadAuthRequest("导演场景不存在或不属于当前画布")
 	}
+	if args.EpisodeID != "" {
+		if bound := stringValue(scene["episodeId"]); bound != "" && bound != args.EpisodeID {
+			return nil, Forbidden("预演场景属于其他剧集")
+		}
+	}
 	canvasSnapshotHash := cloudAgentCanvasHash(doc)
 	sceneSnapshotHash := creationHash(scene)
 	if sceneSnapshotHash != args.SnapshotHash {
 		return nil, &cloudAgentFieldArgumentError{error: &cloudAgentArgumentError{creationConflict("预演场景已变化，本次未写入；请重新读取并重新申请审批")}, Field: "snapshotHash", Issue: "stale_snapshot"}
 	}
+	if args.EpisodeID != "" && stringValue(scene["episodeId"]) == "" {
+		scene["episodeId"] = args.EpisodeID
+	}
 	items := make([]cloudAgentApprovalPreviewItem, 0, len(args.Operations))
 	for index, operation := range args.Operations {
 		if err := cloudAgentPrevisValidateCharacterBindingInCanvas(doc, operation); err != nil {
+			return nil, err
+		}
+		if err := cloudAgentPrevisValidateExternalReferences(repo, userID, canvas.ProjectID, stringValue(scene["episodeId"]), operation); err != nil {
 			return nil, err
 		}
 		item, err := cloudAgentPrevisApplyPatchOperation(scene, operation, index)
@@ -1282,6 +1360,19 @@ func cloudAgentPrevisUpsertKeyframe(item map[string]any, operation cloudAgentPre
 		}
 	}
 	item["keyframes"] = keyframes
+	if operation.Pose != "" {
+		if stringValue(item["kind"]) != "actor" && stringValue(item["primitive"]) != "character" {
+			return BadAuthRequest("姿态关键帧只能用于演员")
+		}
+		if err := cloudAgentPrevisValidatePose(operation.Pose); err != nil {
+			return err
+		}
+		for _, frame := range keyframes {
+			if math.Abs(numberValue(frame["time"], -1)-*operation.Time) < 0.001 {
+				frame["pose"] = operation.Pose
+			}
+		}
+	}
 	return nil
 }
 
@@ -1435,8 +1526,11 @@ func cloudAgentPrevisApplyObjectPatch(objects *[]map[string]any, operation cloud
 		if existing != nil {
 			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("新增对象 ID 已存在")
 		}
-		if operation.Kind != "primitive" && operation.Kind != "actor" {
-			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("新增对象 kind 只支持 primitive 或 actor")
+		if operation.Kind != "primitive" && operation.Kind != "actor" && operation.Kind != "model" {
+			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("新增对象 kind 只支持 primitive、actor 或 model")
+		}
+		if operation.Kind == "model" && operation.ResourceID == nil {
+			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("模型对象需要 resourceId")
 		}
 		primitive := operation.Primitive
 		if primitive == "" {
@@ -1457,7 +1551,7 @@ func cloudAgentPrevisApplyObjectPatch(objects *[]map[string]any, operation cloud
 			return cloudAgentApprovalPreviewItem{}, err
 		}
 		position, rotation, scale := []float64{0, 0.5, 0}, []float64{0, 0, 0}, []float64{1, 1, 1}
-		if operation.Kind == "actor" || primitive == "character" {
+		if operation.Kind == "actor" || operation.Kind == "model" || primitive == "character" {
 			// 演员原点在脚底：省略 position 时站在地面上，而不是悬在几何体默认的 0.5m。
 			position = []float64{0, 0, 0}
 		}
@@ -1507,6 +1601,20 @@ func cloudAgentPrevisApplyObjectPatch(objects *[]map[string]any, operation cloud
 			defaultColor = actorColors[actorCount%len(actorColors)]
 		}
 		item := map[string]any{"id": operation.ID, "name": name, "kind": operation.Kind, "primitive": primitive, "transform": map[string]any{"position": cloudAgentPrevisVec3(position), "rotation": cloudAgentPrevisVec3(rotation), "scale": cloudAgentPrevisVec3(scale)}, "color": defaultColor, "visible": true, "castShadow": true, "receiveShadow": true, "keyframes": []any{}}
+		if operation.Kind == "model" {
+			delete(item, "primitive")
+			item["resourceId"] = *operation.ResourceID
+			item["storageKey"] = "resource:" + *operation.ResourceID
+			item["url"] = "/api/resources/" + *operation.ResourceID + "/file"
+			item["mimeType"] = "model/gltf-binary"
+			item["preserveGLBScale"] = true
+			if operation.GLTFNodeIndex != nil {
+				item["gltfNodeIndex"] = *operation.GLTFNodeIndex
+			}
+		}
+		if operation.DramaCastID != nil {
+			item["dramaCastId"] = *operation.DramaCastID
+		}
 		if operation.Color != nil {
 			item["color"] = *operation.Color
 		}
@@ -1546,6 +1654,21 @@ func cloudAgentPrevisApplyObjectPatch(objects *[]map[string]any, operation cloud
 		}
 		if err := cloudAgentPrevisApplyName(existing, operation.Name, "对象名称"); err != nil {
 			return cloudAgentApprovalPreviewItem{}, err
+		}
+		if operation.ResourceID != nil {
+			if stringValue(existing["kind"]) != "model" {
+				return cloudAgentApprovalPreviewItem{}, BadAuthRequest("只有模型对象可更换 resourceId")
+			}
+			existing["resourceId"] = *operation.ResourceID
+			existing["storageKey"] = "resource:" + *operation.ResourceID
+			existing["url"] = "/api/resources/" + *operation.ResourceID + "/file"
+			existing["mimeType"] = "model/gltf-binary"
+		}
+		if operation.GLTFNodeIndex != nil {
+			existing["gltfNodeIndex"] = *operation.GLTFNodeIndex
+		}
+		if operation.DramaCastID != nil {
+			existing["dramaCastId"] = *operation.DramaCastID
 		}
 		if operation.Color != nil {
 			if err := cloudAgentPrevisValidateColor(*operation.Color, "对象颜色"); err != nil {
@@ -1619,6 +1742,12 @@ func cloudAgentPrevisFindByID(items []map[string]any, id string) map[string]any 
 }
 
 func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAgentPrevisPatchOperation, index int) (cloudAgentApprovalPreviewItem, error) {
+	if operation.ShotID != "" {
+		return applyPrevisShotObjectPatch(scene, operation, index)
+	}
+	if previsRigOperation(operation.Type) {
+		return cloudAgentApprovalPreviewItem{}, BadAuthRequest("骨骼与接触约束操作必须明确提供 shotId")
+	}
 	if err := cloudAgentPrevisValidateText(operation.Type, fmt.Sprintf("operations[%d].type", index), 40, true); err != nil {
 		return cloudAgentApprovalPreviewItem{}, err
 	}
@@ -1701,6 +1830,76 @@ func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAg
 		}
 		scene["objects"] = objects
 		return cloudAgentApprovalPreviewItem{Operation: operation.Type, NodeID: operation.ID, NodeTitle: stringValue(object["name"]), Summary: fmt.Sprintf("修改对象《%s》的动画", stringValue(object["name"]))}, nil
+	case "shot_render_set":
+		shot := cloudAgentPrevisFindByID(shots, operation.ID)
+		if shot == nil || operation.RenderResourceID == nil || operation.RenderKind == nil {
+			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("镜头预览需要现有 shotId、renderResourceId 和 renderKind")
+		}
+		shot["renderResourceId"] = *operation.RenderResourceID
+		shot["renderKind"] = *operation.RenderKind
+		return cloudAgentApprovalPreviewItem{Operation: operation.Type, NodeID: operation.ID, NodeTitle: stringValue(shot["name"]), Summary: "绑定镜头预览资源"}, nil
+	case "shot_object_set", "shot_object_clear":
+		if err := previsValidateShotStateFields(operation); err != nil {
+			return cloudAgentApprovalPreviewItem{}, err
+		}
+		shot := cloudAgentPrevisFindByID(shots, operation.ID)
+		if shot == nil || operation.ObjectID == nil {
+			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("镜头对象操作需要现有 shotId 和 objectId")
+		}
+		if err := validateCloudAgentID(*operation.ObjectID, "objectId", 80); err != nil {
+			return cloudAgentApprovalPreviewItem{}, err
+		}
+		base := cloudAgentPrevisFindByID(objects, *operation.ObjectID)
+		if base == nil {
+			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("镜头对象不存在")
+		}
+		states := creationMaps(shot["objectStates"])
+		filtered := make([]map[string]any, 0, len(states)+1)
+		for _, state := range states {
+			if stringValue(state["objectId"]) != *operation.ObjectID {
+				filtered = append(filtered, state)
+			}
+		}
+		if operation.Type == "shot_object_set" {
+			if operation.Visible == nil && operation.Position == nil && operation.Rotation == nil && operation.Scale == nil {
+				return cloudAgentApprovalPreviewItem{}, BadAuthRequest("shot_object_set 需要 visible 或 transform")
+			}
+			state := map[string]any{"objectId": *operation.ObjectID}
+			for _, previous := range states {
+				if stringValue(previous["objectId"]) == *operation.ObjectID {
+					for key, value := range previous {
+						state[key] = value
+					}
+				}
+			}
+			if operation.Visible != nil {
+				state["visible"] = *operation.Visible
+			}
+			if operation.Position != nil || operation.Rotation != nil || operation.Scale != nil {
+				transform, _ := previsShotObject(base, shot)["transform"].(map[string]any)
+				copyTransform := map[string]any{"position": transform["position"], "rotation": transform["rotation"], "scale": transform["scale"]}
+				for _, part := range []struct {
+					name  string
+					value *[]float64
+				}{{"position", operation.Position}, {"rotation", operation.Rotation}, {"scale", operation.Scale}} {
+					if part.value != nil {
+						if err := cloudAgentPrevisValidateVec3(*part.value, part.name); err != nil {
+							return cloudAgentApprovalPreviewItem{}, err
+						}
+						copyTransform[part.name] = cloudAgentPrevisVec3(*part.value)
+					}
+				}
+				state["transform"] = copyTransform
+				state["keyframes"] = []any{}
+				state["motionPath"] = nil
+			}
+			if len(state) == 1 {
+				return cloudAgentApprovalPreviewItem{}, BadAuthRequest("shot_object_set 需要 visible 或 transform")
+			}
+			filtered = append(filtered, state)
+		}
+		shot["objectStates"] = filtered
+		return cloudAgentApprovalPreviewItem{Operation: operation.Type, NodeID: operation.ID, NodeTitle: stringValue(shot["name"]), Summary: "修改镜头对象状态"}, nil
 	case "shot_add":
 		if cloudAgentPrevisFindByID(shots, operation.ID) != nil {
 			return cloudAgentApprovalPreviewItem{}, BadAuthRequest("新增镜头 ID 已存在")
@@ -1750,7 +1949,13 @@ func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAg
 		if err := cloudAgentPrevisValidateEnum(cameraMove, "镜头运镜", "static", "push_in", "pull_out", "pan_left", "pan_right", "tilt_up", "tilt_down", "orbit_left", "orbit_right", "handheld"); err != nil {
 			return cloudAgentApprovalPreviewItem{}, err
 		}
-		shot := map[string]any{"id": operation.ID, "name": name, "cameraId": cameraID, "duration": duration, "fps": fps, "shotSize": shotSize, "cameraMove": cameraMove, "prompt": "", "cuts": []any{}}
+		shot := map[string]any{"id": operation.ID, "name": name, "cameraId": cameraID, "duration": duration, "fps": fps, "aspectRatio": "9:16", "shotSize": shotSize, "cameraMove": cameraMove, "prompt": "", "cuts": []any{}}
+		if operation.DramaShotID != nil {
+			shot["dramaShotId"] = *operation.DramaShotID
+		}
+		if operation.AspectRatio != nil {
+			shot["aspectRatio"] = *operation.AspectRatio
+		}
 		if operation.Prompt != nil {
 			if err := cloudAgentPrevisValidateText(*operation.Prompt, "镜头提示词", 2000, false); err != nil {
 				return cloudAgentApprovalPreviewItem{}, err
@@ -1785,6 +1990,12 @@ func cloudAgentPrevisApplyPatchOperation(scene map[string]any, operation cloudAg
 		}
 		if err := cloudAgentPrevisApplyName(shot, operation.Name, "镜头名称"); err != nil {
 			return cloudAgentApprovalPreviewItem{}, err
+		}
+		if operation.DramaShotID != nil {
+			shot["dramaShotId"] = *operation.DramaShotID
+		}
+		if operation.AspectRatio != nil {
+			shot["aspectRatio"] = *operation.AspectRatio
 		}
 		if operation.CameraID != nil {
 			if err := validateCloudAgentID(*operation.CameraID, "摄影机 ID", 80); err != nil {

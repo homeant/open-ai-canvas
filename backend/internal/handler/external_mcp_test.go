@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/jsonschema-go/jsonschema"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"yingce/backend/internal/auth"
@@ -82,6 +85,54 @@ func TestExternalMCPAuthorizationAndRevocation(t *testing.T) {
 	}
 }
 
+func TestExternalPrevisOperationMCPInputSchema(t *testing.T) {
+	schema, err := jsonschema.For[service.ExternalPrevisPatchOperation](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schema.Required) != 2 || schema.Required[0] != "type" || schema.Required[1] != "id" {
+		t.Fatalf("unexpected required fields: %#v", schema.Required)
+	}
+}
+
+func TestExternalMCPRateLimitIncludesRetryTime(t *testing.T) {
+	svc := externalAccessTestService(t)
+	if err := externalMCPAllow(context.Background(), svc, "previs-render-test", 1); err != nil {
+		t.Fatal(err)
+	}
+	err := externalMCPAllow(context.Background(), svc, "previs-render-test", 1)
+	var limited *service.AppError
+	if !errors.As(err, &limited) || !limited.Retryable {
+		t.Fatalf("missing retryable error: %v", err)
+	}
+	ms := limited.Details["retryAfterMs"].(time.Duration)
+	if ms <= 0 || ms > 60000 {
+		t.Fatalf("invalid retry delay: %v", limited.Details)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, limited.Details["retryAt"].(string)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExternalPrevisCanvasOnlyMCPInputSchema(t *testing.T) {
+	read, err := jsonschema.For[service.ExternalPrevisReadRequest](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range read.Required {
+		if field == "dramaId" || field == "episodeId" || field == "sceneId" || field == "nodeId" {
+			t.Fatalf("canvas/node read requires unrelated field %s", field)
+		}
+	}
+	patch, err := jsonschema.For[service.ExternalPrevisPatchOperation](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patch.Properties["shotId"] == nil {
+		t.Fatal("shot scope is missing from MCP input schema")
+	}
+}
+
 func TestExternalMCPDiscoveryAndChallenge(t *testing.T) {
 	t.Setenv("CANVAS_MCP_PUBLIC_ORIGIN", "https://yingce.example.com")
 	svc := externalAccessTestService(t)
@@ -124,8 +175,13 @@ func TestExternalMCPDiscoveryAndChallenge(t *testing.T) {
 	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
 	response = httptest.NewRecorder()
 	router.ServeHTTP(response, request)
-	if response.Code != 200 || !strings.Contains(response.Body.String(), `"create_video"`) || !strings.Contains(response.Body.String(), `"create_drama"`) {
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"create_video"`) || !strings.Contains(response.Body.String(), `"create_drama"`) || !strings.Contains(response.Body.String(), `"edit_segment_prompt"`) || !strings.Contains(response.Body.String(), `"get_segment"`) || !strings.Contains(response.Body.String(), `"preview_segment_frame"`) || !strings.Contains(response.Body.String(), `"list_segment_versions"`) || !strings.Contains(response.Body.String(), `"set_segment_current_version"`) {
 		t.Fatalf("MCP tools/list: %d %s", response.Code, response.Body.String())
+	}
+	for _, name := range []string{"list_previs_capabilities", "list_previs_scenes", "create_previs_canvas", "get_previs_scene", "create_previs_scene", "list_previs_references", "upload_previs_model", "inspect_previs_model", "apply_previs_patch", "validate_previs_scene", "preview_previs_shot", "render_previs_frame", "render_previs_video", "upload_previs_render", "publish_previs_render", "get_previs_render"} {
+		if !strings.Contains(response.Body.String(), `"`+name+`"`) {
+			t.Fatalf("MCP tool %s missing from tools/list", name)
+		}
 	}
 }
 

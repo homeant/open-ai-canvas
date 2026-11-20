@@ -1,5 +1,6 @@
 import { translate } from "@/i18n";
 import { isCanvasNodeGenerating } from "@/lib/canvas/canvas-node-task-state";
+import { resetGenerationTaskMetadata, settleCanvasGenerationPreparation } from "@/lib/canvas/canvas-task-state";
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 
@@ -147,6 +148,14 @@ export function useCanvasGenerationExecutor({
                     const generationPrompt = options?.inputSnapshot?.context.prompt ?? canvasGenerationInputPrompt(sourceNode, mode, prompt);
                     const isPreparingEmptyImage = mode === "image" && sourceNode?.type === CanvasNodeType.Image && !sourceNode.metadata?.content;
                     const preparationController = startGenerationRequest(nodeId, nodeId, nodeId, options?.controller);
+                    const preparationStartedAt = new Date().toISOString();
+                    const endPreparation = (error?: unknown) => {
+                        if (isGenerationCanceled(error)) error = undefined;
+                        if (error !== undefined) message.error(generationErrorMessage(error));
+                        if (markSourceStatus) setNodes((current) => current.map((node) => (node.id === nodeId ? settleCanvasGenerationPreparation(node, preparationStartedAt, prompt, error) : node)));
+                        finishGenerationRequest(nodeId, preparationController);
+                        setRunningNodeId((current) => (current === nodeId ? null : current));
+                    };
                     setRunningNodeId(nodeId);
                     if (markSourceStatus)
                         setNodes((current) =>
@@ -155,12 +164,12 @@ export function useCanvasGenerationExecutor({
                                     ? {
                                           ...node,
                                           metadata: {
-                                              ...node.metadata,
+                                              ...resetGenerationTaskMetadata(node.metadata, "loading"),
                                               ...canvasGenerationPromptMetadata(prompt, prompt),
                                               status: NODE_STATUS_LOADING,
                                               taskStage: "正在准备参考素材",
                                               taskProgress: 0,
-                                              taskCreatedAt: new Date().toISOString(),
+                                              taskCreatedAt: preparationStartedAt,
                                               errorDetails: undefined,
                                               generationErrorCode: undefined,
                                               resourceReloadAvailable: undefined,
@@ -181,14 +190,7 @@ export function useCanvasGenerationExecutor({
                         const contextPrompt = editingTextNode ? buildTextRewritePrompt(sourceTextContent, prompt) : generationPrompt;
                         // 批量快照已在入队时解析过引用；其余路径先补齐提示词引用的素材，再用最新列表解析。
                         const contextAssets = options?.inputSnapshot ? assets : await loadPromptMentionedAssets(contextPrompt);
-                        const baseContext = resolveCanvasBatchInputContext(options?.inputSnapshot, () => buildNodeGenerationContext(
-                            nodeId,
-                            nodesRef.current,
-                            connectionsRef.current,
-                            contextPrompt,
-                            contextAssets,
-                            promptOnly,
-                        ));
+                        const baseContext = resolveCanvasBatchInputContext(options?.inputSnapshot, () => buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, contextPrompt, contextAssets, promptOnly));
                         const requirements = generationModelRequirements(mode, baseContext, sourceNode, generationConfig, true);
                         generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode, requirements, false, referenceImageSize);
                         const compatibilityError = usesWorkflowProvider ? "" : modelCompatibilityError(generationConfig, generationConfig.model, requirements);
@@ -200,10 +202,7 @@ export function useCanvasGenerationExecutor({
                         const hydratedCompatibilityError = usesWorkflowProvider ? "" : modelCompatibilityError(generationConfig, generationConfig.model, hydratedRequirements);
                         if (hydratedCompatibilityError) throw new Error(translate("canvasPage.generation.modelIncompatible", { error: hydratedCompatibilityError }));
                     } catch (error) {
-                        const errorDetails = generationErrorMessage(error);
-                        message.error(errorDetails);
-                        finishGenerationRequest(nodeId, preparationController);
-                        setRunningNodeId(null);
+                        endPreparation(error);
                         return;
                     }
 
@@ -211,9 +210,7 @@ export function useCanvasGenerationExecutor({
                     try {
                         skillExecution = await skillRuntime.prepare({ profile: "canvas", prompt: rawGenerationContext.prompt, skills: addedSkills });
                     } catch (error) {
-                        message.error(error instanceof Error ? error.message : translate("canvasPage.generation.skillContextFailed"));
-                        finishGenerationRequest(nodeId, preparationController);
-                        setRunningNodeId(null);
+                        endPreparation(error);
                         return;
                     }
                     let effectivePrompt = skillExecution.prompt.trim();
@@ -226,18 +223,13 @@ export function useCanvasGenerationExecutor({
                                 styleMetadata = { styleProfileJson: styleRuntime.profileJson, styleExecutionPlan: styleRuntime.plan };
                             }
                         } catch (error) {
-                            const errorDetails = generationErrorMessage(error);
-                            message.error(errorDetails);
-                            finishGenerationRequest(nodeId, preparationController);
-                            setRunningNodeId(null);
+                            endPreparation(error);
                             return;
                         }
                     }
                     const promptLengthError = mode === "video" ? modelPromptLengthError(generationConfig, generationConfig.model, mode, effectivePrompt) : "";
                     if (promptLengthError) {
-                        message.error(promptLengthError);
-                        finishGenerationRequest(nodeId, preparationController);
-                        setRunningNodeId(null);
+                        endPreparation(new Error(promptLengthError));
                         return;
                     }
                     const generationContext = { ...rawGenerationContext, prompt: effectivePrompt };
@@ -247,31 +239,24 @@ export function useCanvasGenerationExecutor({
                         const minReferenceImages = modelCapabilityConfigFor(generationConfig, generationConfig.model).video?.references.minImages ?? 0;
                         const referenceImageCount = generationContext.referenceImages?.length ?? 0;
                         if (referenceImageCount < minReferenceImages) {
-                            message.error(translate("canvasPage.generation.videoRequiresReferenceImages", { count: minReferenceImages }));
-                            finishGenerationRequest(nodeId, preparationController);
-                            setRunningNodeId(null);
+                            endPreparation(new Error(translate("canvasPage.generation.videoRequiresReferenceImages", { count: minReferenceImages })));
                             return;
                         }
                     }
                     if (mode === "audio" && generationContext.characterReferences.length) {
                         if (generationContext.characterReferences.length !== 1) {
-                            message.error(translate("canvasPage.generation.voiceOneCharacter"));
-                            finishGenerationRequest(nodeId, preparationController);
-                            setRunningNodeId(null);
+                            endPreparation(new Error(translate("canvasPage.generation.voiceOneCharacter")));
                             return;
                         }
                         const voice = generationContext.resolvedCharacterVoices[0];
                         if (!voice) {
-                            message.error(translate("canvasPage.generation.voiceNotBound"));
-                            finishGenerationRequest(nodeId, preparationController);
-                            setRunningNodeId(null);
+                            endPreparation(new Error(translate("canvasPage.generation.voiceNotBound")));
                             return;
                         }
                         generationConfig = { ...generationConfig, audioVoice: voice.voiceKey, audioInstructions: [voice.instructions, generationConfig.audioInstructions].filter(Boolean).join("；") };
                     }
                     if (!effectivePrompt && (mode === "text" || mode === "audio")) {
-                        finishGenerationRequest(nodeId, preparationController);
-                        setRunningNodeId(null);
+                        endPreparation();
                         return;
                     }
 
@@ -308,15 +293,13 @@ export function useCanvasGenerationExecutor({
                     });
                     const duplicateConfirmationRequired = !options?.skipDuplicateConfirmation && !options?.retryContext && sourceNode?.metadata?.lastGenerationRequestFingerprint === requestFingerprint;
                     if (duplicateConfirmationRequired && !(await confirmDuplicateSubmission())) {
-                        finishGenerationRequest(nodeId, preparationController);
-                        setRunningNodeId(null);
+                        endPreparation();
                         return;
                     }
 
                     const controller = preparationController;
                     if (controller.signal.aborted) {
-                        finishGenerationRequest(nodeId, controller);
-                        setRunningNodeId(null);
+                        endPreparation();
                         return;
                     }
                     if (isPreparingEmptyImage) {
@@ -352,7 +335,15 @@ export function useCanvasGenerationExecutor({
                                 node.id === nodeId
                                     ? {
                                           ...node,
-                                          metadata: { ...node.metadata, ...canvasGenerationPromptMetadata(prompt, statusPrompt), status: NODE_STATUS_LOADING, errorDetails: undefined, generationErrorCode: undefined, resourceReloadAvailable: undefined, failedPromptFingerprint: undefined },
+                                          metadata: {
+                                              ...node.metadata,
+                                              ...canvasGenerationPromptMetadata(prompt, statusPrompt),
+                                              status: NODE_STATUS_LOADING,
+                                              errorDetails: undefined,
+                                              generationErrorCode: undefined,
+                                              resourceReloadAvailable: undefined,
+                                              failedPromptFingerprint: undefined,
+                                          },
                                       }
                                     : node,
                             ),
@@ -459,7 +450,6 @@ export function useCanvasGenerationExecutor({
         ],
     );
 }
-
 
 function generationModelRequirements(
     mode: CanvasNodeGenerationMode,

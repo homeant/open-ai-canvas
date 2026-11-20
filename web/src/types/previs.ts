@@ -50,6 +50,7 @@ export type PrevisKeyframe = {
     time: number;
     transform: PrevisTransform;
     easing?: PrevisKeyframeEasing;
+    pose?: PrevisPose;
 };
 
 export type PrevisFingerBone =
@@ -150,6 +151,7 @@ export type PrevisCharacterBinding = {
 };
 
 export type PrevisObject = {
+    contactConstraints?: PrevisContactConstraint[];
     id: string;
     name: string;
     kind: PrevisObjectKind;
@@ -173,6 +175,9 @@ export type PrevisObject = {
     storageKey?: string;
     url?: string;
     mimeType?: string;
+    gltfNodeIndex?: number;
+    preserveGLBScale?: boolean;
+    dramaCastId?: string;
     keyframes: PrevisKeyframe[];
     motionPath?: PrevisMotionPath;
     /** kind=prop 时的程序化道具目录 ID；见 previs-prop-catalog.ts。 */
@@ -210,6 +215,14 @@ export type PrevisLight = {
     castShadow: boolean;
 };
 
+export type PrevisContactEffector = "leftHand" | "rightHand" | "leftFoot" | "rightFoot";
+export type PrevisContactConstraint = { id: string; effector: PrevisContactEffector; target: PrevisVec3; startTime: number; endTime: number; tolerance: number; surfaceObjectId?: string };
+
+export type PrevisShotObjectState = { objectId: string } & Partial<Pick<PrevisObject, "visible" | "transform" | "pose" | "keyframes" | "boneOverrides" | "boneTracks" | "contactConstraints" | "motions" | "motionClips">> & {
+        motionPath?: PrevisMotionPath | null;
+        activeMotionClipId?: string | null;
+    };
+
 export type PrevisShot = {
     id: string;
     name: string;
@@ -217,6 +230,10 @@ export type PrevisShot = {
     duration: number;
     fps: 24 | 25 | 30;
     aspectRatio?: PrevisAspectRatio;
+    dramaShotId?: string;
+    objectStates?: PrevisShotObjectState[];
+    renderResourceId?: string;
+    renderKind?: "frame" | "video";
     shotSize: PrevisShotSize;
     cameraMove: PrevisCameraMove;
     prompt: string;

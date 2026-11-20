@@ -147,6 +147,24 @@ export function useCanvasHistory({
 
     const getHistoryCleanupContext = useCallback(() => ({ history: historyRef.current, lastHistory: lastHistoryRef.current }), []);
 
+    // A layout is one explicit transaction, separate from any drag / edit still in the debounce window.
+    const commitNodeArrangement = useCallback((nextNodes: CanvasNodeData[]) => {
+        clearCommitTimer();
+        const before = createHistorySnapshot();
+        const last = lastHistoryRef.current;
+        const pending = last ? createCanvasHistoryPatch(last, before) : null;
+        const after = { ...before, nodes: nextNodes };
+        const patch = createCanvasHistoryPatch(before, after);
+        const additions = [pending, patch].filter((item): item is CanvasHistoryPatch => Boolean(item));
+        if (additions.length) {
+            historyRef.current.past = [...historyRef.current.past, ...additions].slice(-50);
+            historyRef.current.future = [];
+            setHistoryState({ canUndo: true, canRedo: false });
+        }
+        lastHistoryRef.current = after;
+        setNodes(nextNodes);
+    }, [clearCommitTimer, createHistorySnapshot, setNodes]);
+
     useEffect(() => {
         if (!projectLoaded || applyingHistoryRef.current || historyPausedRef.current) return;
         const next = createHistorySnapshot();
@@ -175,7 +193,7 @@ export function useCanvasHistory({
         if (applyTimerRef.current) clearTimeout(applyTimerRef.current);
     }, [clearCommitTimer]);
 
-    return { getHistoryCleanupContext, historyPausedRef, historyState, redoCanvas, resetHistory, undoCanvas };
+    return { commitNodeArrangement, getHistoryCleanupContext, historyPausedRef, historyState, redoCanvas, resetHistory, undoCanvas };
 }
 
 function snapshotsShareReferences(before: CanvasHistorySnapshot, after: CanvasHistorySnapshot) {

@@ -9,6 +9,14 @@ import type { CaptureContext } from "./previs-viewport";
 export type PrevisCaptureOptions = { longEdge?: number; depthNear?: number; depthFar?: number; signal?: AbortSignal };
 export type PrevisCaptureSource = () => CaptureContext | null;
 
+/** Surface transforms must be evaluated before actor contact targets are solved. */
+function evaluatePrevisCaptureScene(scene: Object3D, time: number) {
+    scene.traverse((object) => object.userData.previsEvaluate?.(time));
+    scene.updateMatrixWorld(true);
+    scene.traverse((object) => object.userData.previsConstrain?.(time));
+    scene.updateMatrixWorld(true);
+}
+
 /** 近白远黑，固定米制范围。禁止逐帧自动归一化，否则深度视频会闪烁。 */
 export function createPrevisDepthMaterial(near: number, far: number) {
     if (!Number.isFinite(near) || !Number.isFinite(far) || near < 0 || far <= near) throw new Error("深度范围必须满足 0 ≤ 近端 < 远端");
@@ -107,9 +115,8 @@ export function createPrevisShotSurface(source: PrevisCaptureSource, options: Pr
                         hidden.push(object);
                         object.visible = false;
                     }
-                    object.userData.previsEvaluate?.(time ?? playhead);
                 });
-                scene.updateMatrixWorld(true);
+                evaluatePrevisCaptureScene(scene, time ?? playhead);
                 scene.overrideMaterial = mode === "depth" ? depth : mode === "normal" ? normal : mode === "pose" ? wire : null;
                 if (mode === "clay") restoreClay = applyClaySceneMaterials(scene);
                 if (mode !== "beauty") scene.background = new Color(mode === "depth" || mode === "pose" ? "#000000" : "#d8dde3");
@@ -145,8 +152,7 @@ export function createPrevisShotSurface(source: PrevisCaptureSource, options: Pr
                 hidden.forEach((object) => {
                     object.visible = true;
                 });
-                scene.traverse((object) => object.userData.previsEvaluate?.(playhead));
-                scene.updateMatrixWorld(true);
+                evaluatePrevisCaptureScene(scene, playhead);
                 gl.toneMapping = toneMapping;
                 gl.setClearColor(clearColor, clearAlpha);
                 gl.setRenderTarget(previousTarget);

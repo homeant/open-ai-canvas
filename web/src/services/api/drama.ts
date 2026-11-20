@@ -230,6 +230,7 @@ export type DramaShot = {
     lookCastIdsJson: string;
     propIdsJson: string;
     speaker: string;
+    dialogueMode?: "" | "dialogue" | "inner_monologue" | "voice_over" | "silent";
     dialogue: string;
     action: string;
     shotSize: string;
@@ -330,6 +331,12 @@ export type DramaSegmentPromptStatus = "none" | "queued" | "running" | "ready" |
 
 /** 一个剧情段；videoPrompt 为生效内容（手动改写优先），generated 为模型撰写的版本。 */
 export type DramaSegment = {
+    promptSeconds?: number;
+    shotRevision?: string;
+    promptRevision?: number;
+    promptShotRevision?: string;
+    candidateId?: string;
+    candidateShotRevision?: string;
     id: string;
     /** 段版本；从画布采用视频时用于乐观并发校验。 */
     revision: number;
@@ -373,6 +380,7 @@ export type DramaSegmentReferencePatch = { referenceCastIds?: string[]; autoRefe
  * firstFramePending：上一段视频还没生成，本段要等它完成后才能提交。
  */
 export type DramaSegmentRequest = {
+    preparationError?: string;
     operation: "image_to_video" | "reference_to_video" | "text_to_video" | "";
     seconds: number;
     maxVideoSeconds: number;
@@ -382,7 +390,7 @@ export type DramaSegmentRequest = {
     resolution?: string;
     /** 视频模型的提示词字符上限（含开头的参考图说明）；缺省表示未声明。 */
     promptMaxChars?: number;
-    /** 视频模型同步生成对白与音效；false 时本段视频没有声音。 */
+    /** 模型合同的音频生成开关；不代表产物有无音轨、人声或对白质量。 */
     generateAudio: boolean;
     firstFrameResourceId?: string;
     firstFramePending: boolean;
@@ -473,7 +481,7 @@ export type DramaModelOption = {
     tailFrameChain?: boolean;
     /** 仅视频模型：能准确给出的作品画幅；不含作品画幅的模型不能用于该作品。 */
     videoRatios?: string[];
-    /** 仅视频模型：是否同步生成对白与音效；false 时剧情段视频没有声音。 */
+    /** 仅视频模型：是否声明同步音频生成；不代表产物音轨或人声检测结果。 */
     generateAudio?: boolean;
     /** 仅视频模型：作品可指定的分辨率档位与模型默认档位；为空表示不提供可选分辨率。 */
     videoResolutions?: string[];
@@ -786,6 +794,10 @@ export type DramaTakeKind = "cast" | "video" | "final";
 export type DramaTakeSource = "pipeline" | "upload" | "canvas";
 
 export type DramaTake = {
+    shotRevision?: string;
+    promptRevision?: number;
+    generationJson?: string;
+    scriptMatch?: "match" | "mismatch" | "unknown";
     id: string;
     ownerId: string;
     kind: DramaTakeKind;

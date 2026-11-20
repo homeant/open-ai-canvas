@@ -80,6 +80,12 @@ func (s *Service) TestAdminChannelModel(ctx context.Context, actor *model.User, 
 	}
 	videoSecondsValue := videoTestSeconds(videoProfile)
 	videoSeconds := strconv.Itoa(videoSecondsValue)
+	audioVoice := "alloy"
+	if protocol == model.ChannelInterfaceMiniMaxSpeech {
+		audioVoice = "male-qn-qingse"
+	} else if protocol == model.ChannelInterfaceEvoLinkQwenAudioTTS {
+		audioVoice = "longanhuan_v3.1"
+	}
 	input := canvasGenerationInput{
 		Mode:   capability,
 		Prompt: prompt,
@@ -100,7 +106,7 @@ func (s *Service) TestAdminChannelModel(ctx context.Context, actor *model.User, 
 			VQuality:           videoResolution,
 			VideoGenerateAudio: "false",
 			VideoWatermark:     "false",
-			AudioVoice:         "alloy",
+			AudioVoice:         audioVoice,
 			AudioFormat:        "mp3",
 			AudioSpeed:         "1",
 		},

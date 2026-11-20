@@ -15,7 +15,7 @@ import {
 import { AlertCircle, AlertTriangle, AudioLines, CloudOff, FileText, Film, Image as ImageIcon, RefreshCw, RotateCcw, ShieldAlert, Type, type LucideIcon } from "lucide-react";
 import { type CSSProperties, type MouseEvent } from "react";
 import { useTaskElapsed } from "@/hooks/use-task-elapsed";
-import { canvasNodeCanResyncTask } from "@/lib/canvas/canvas-task-state";
+import { canvasNodeCanResyncTask, canvasNodeHasUnboundRecovery, CLIENT_PREPARATION_FAILED, UNBOUND_CANVAS_SUBMISSION } from "@/lib/canvas/canvas-task-state";
 import { CONTENT_MODERATION_ERROR_CODE, generationErrorMessage, isContentModerationError } from "@/lib/generation-error";
 import { GenerationPhaseSteps } from "@/components/ai/generation-phase-steps";
 import type { CanvasTheme } from "@/lib/canvas-theme";
@@ -69,7 +69,7 @@ function TaskDetailButton({ node, onOpenTaskDetails }: Pick<CanvasNodeContentPro
     );
 }
 
-export function LoadingContent({ node, theme, onOpenTaskDetails }: Pick<CanvasNodeContentProps, "node" | "theme" | "onOpenTaskDetails">) {
+export function LoadingContent({ node, theme, onOpenTaskDetails, onRetry }: Pick<CanvasNodeContentProps, "node" | "theme" | "onOpenTaskDetails" | "onRetry">) {
     const metadata = node.metadata;
     const taskId = metadata?.taskId;
     const displayTask = {
@@ -79,8 +79,8 @@ export function LoadingContent({ node, theme, onOpenTaskDetails }: Pick<CanvasNo
         progress: metadata?.taskProgress,
     };
     const workflow = metadata?.imageLayerWorkflow;
-    // 还没拿到任务 ID 时一律视为“提交中”，不展示前端占位用的阶段字符串。
-    const phase: GenerationPhase = taskId ? generationTaskPhase(displayTask) : "submitting";
+    const unboundRecovery = canvasNodeHasUnboundRecovery(node);
+    const phase: GenerationPhase = unboundRecovery ? "uncertain" : taskId ? generationTaskPhase(displayTask) : "submitting";
     const kind = canvasNodeGenerationKind(node.type);
     const Icon = generationKindIcon[kind];
     const uncertain = phase === "uncertain";
@@ -119,6 +119,20 @@ export function LoadingContent({ node, theme, onOpenTaskDetails }: Pick<CanvasNo
                 ) : null}
             </span>
             {!uncertain && !workflow ? <GenerationPhaseSteps className="canvas-gen-steps" step={generationPhaseStep(phase)} progress={progress} /> : null}
+            {unboundRecovery && onRetry ? (
+                <button
+                    type="button"
+                    className="canvas-gen-action"
+                    onMouseDown={stopCanvasPointer}
+                    onPointerDown={stopCanvasPointer}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onRetry(node);
+                    }}
+                >
+                    结束等待
+                </button>
+            ) : null}
             <TaskDetailButton node={node} onOpenTaskDetails={onOpenTaskDetails} />
         </div>
     );
@@ -128,7 +142,7 @@ function taskTerminalStatus(status?: string) {
     return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
-type CanvasFailureKind = "uncertain" | "moderation" | "recover-media" | "resync" | "failed";
+type CanvasFailureKind = "uncertain" | "unbound" | "preparation" | "moderation" | "recover-media" | "resync" | "failed";
 type CanvasFailureView = { kind: CanvasFailureKind; tone: "error" | "warning"; icon: LucideIcon; title: string; description: string; detail?: string };
 
 /**
@@ -138,6 +152,8 @@ type CanvasFailureView = { kind: CanvasFailureKind; tone: "error" | "warning"; i
 function canvasFailureView(node: CanvasNodeData): CanvasFailureView {
     const metadata = node.metadata;
     const reason = generationErrorMessage(metadata?.errorDetails);
+    if (metadata?.generationErrorCode === CLIENT_PREPARATION_FAILED) return { kind: "preparation", tone: "error", icon: AlertCircle, title: "提交前检查未通过", description: reason };
+    if (metadata?.generationErrorCode === UNBOUND_CANVAS_SUBMISSION) return { kind: "unbound", tone: "warning", icon: AlertTriangle, title: "等待已结束，提交情况未确认", description: "请先核对创作历史，再决定是否重新提交", detail: reason };
     if (isGenerationTaskSubmissionUncertain({ status: (metadata?.taskStatus || "failed") as GenerationTask["status"], stage: metadata?.taskStage })) {
         return { kind: "uncertain", tone: "warning", icon: AlertTriangle, title: "提交结果待确认", description: "为避免重复扣费，未自动重试，可在详情里核对", detail: reason };
     }
@@ -193,7 +209,7 @@ export function ErrorContent({ node, theme, onRetry, onReloadResource, onOpenTas
                     ) : (
                         <button {...actionProps} className="canvas-gen-action is-primary" onClick={runAction(onRetry)}>
                             <RotateCcw aria-hidden="true" />
-                            {node.metadata?.isBatchRoot ? "重新生成失败项" : "重新生成"}
+                            {view.kind === "preparation" ? "检查引用后重试" : view.kind === "unbound" ? "核对后重新提交" : node.metadata?.isBatchRoot ? "重新生成失败项" : "重新生成"}
                         </button>
                     )}
                 </span>

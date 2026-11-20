@@ -9,6 +9,60 @@ Agent 可以通过远端 MCP 服务查询或操作外部系统。用户在「Age
 
 当前支持 Streamable HTTP 和 SSE 两种远端连接方式。不支持在影策服务器上执行用户填写的 `npx`、shell 命令或上传的本地 MCP 程序，也没有自动完成第三方 OAuth 登录的界面。需要 OAuth 的服务应先取得适用凭据，或部署支持当前认证方式的适配服务。
 
+## 外部创作客户端的预演台工具
+
+### 逐帧取样、画幅和校验范围
+
+`sample_previs_frames` 接受 `{canvasId,sceneId,shotId,snapshotHash,times,longEdge?}`。`times` 是 1–8 个递增、位于镜头时长内的秒数；可按 `1 / fps` 的间隔选择连续帧。`longEdge` 为 320–960，默认 640。一次请求只启动一次浏览器，返回按时间排序的 PNG 图像和逐帧诊断，**不上传资源、不关联镜头预览、不改变修订或快照**，不需要写入幂等键；取样期间场景变化则拒绝过期结果。
+
+```json
+{"canvasId":"canvas-id","sceneId":"scene-id","shotId":"shot-id","snapshotHash":"read-current-hash","times":[0,0.5,1,1.5,2],"longEdge":640}
+```
+
+诊断使用实际渲染对象的世界坐标包围盒，标注 `possible_object_overlap`、`below_ground_bounds` 或 `bounds_unavailable`。这是粗筛风险：床面接触可能产生包围盒重叠，不能据此直接确认穿模。`collisionConfirmed:false` 与 `motionValidated:false` 保持独立；`validate_previs_scene.valid` 仅表示结构和资源关联有效，`validationScope:"structure_and_references"`。根节点翻转仍提示 `root_rotation_not_ik`，不证明真实起身成立。截图、取样和录像均按目标时间求值姿态与接触约束。
+
+未设置 `shot.aspectRatio` 时，UI、MCP 读取和竖屏校验统一使用有效值 `9:16`；读取附 `aspectRatioDefaulted:true`，不回写已有草案。新建镜头明确保存 `9:16`。显式横屏、自适应或无效值不冒充竖屏。
+
+`shot_object_set` 仅接受对象显隐、位置、旋转和尺寸；传 `pose` 等不适用字段会返回 `details.unsupportedFields` 并拒绝整批修改。姿态请使用 `shotId + object_update`，动画用 `shotId + object_keyframe_upsert`。仅切换显隐保留已有轨道；设置静态 transform 会替换该镜头的 transform 轨道并清除走位路径，不清除骨骼轨道。
+
+预演渲染和批量取样共享每用户的准入窗口。`42901` 错误返回 `retryable:true`，以及 `details.retryAfterMs`、`retryAfterSeconds`、`retryAt`；应等待对应时间后再请求，不能连续立即重试。一次批量取样只占一次准入。
+
+影策对外的 `/api/mcp` 提供 `list_previs_scenes`、`get_previs_scene`、`apply_previs_patch`、`render_previs_frame`、`render_previs_video` 等预演工具。它们不提交正式视频生成。可直接按 `canvasId` 定位当前用户的画布；读取时可用 `nodeId` 解析场景，或指定 `sceneId`。如果同时提供作品和剧集上下文，仍须校验画布归属和剧集绑定。
+
+1. 先调用 `list_previs_scenes({canvasId})`，取得场景、节点和镜头 ID。
+2. 调用 `get_previs_scene({canvasId, sceneId, shotId, includeTransforms:true})`。返回 `revision`、`snapshotHash`、米制坐标、机位、镜头独立轨道及 `scene.shotFrames` 的 `firstFrame` / `lastFrame`。首末状态是变换与姿态数据，不冒充骨骼蒙皮或碰撞检测结果。
+3. `apply_previs_patch` 必须带场景 `snapshotHash` 与 `idempotencyKey`；可同时传 `expectedRevision` 做画布修订校验。整批验证与写入在同一事务内完成，同键同请求返回原回执，同键不同请求拒绝，失效快照和修订拒绝。`dryRun:true` 只校验不落盘。
+4. 对象姿态、变换及动画补丁用 `id` 定位对象、`shotId` 明确目标镜头，写入该镜头的 `objectStates`，不修改角色场景基准或其他镜头。省略 `shotId` 表示场景全局修改，不能用于需要隔离的逐镜动作；下面的骨骼与接触语义操作必须指定 `shotId`。UI 的对象姿态、变换和骨骼编辑也保存到当前镜头。相邻姿态关键帧按逐骨骼四元数插值，默认 `linear`，支持 `smooth`；显式 `step` 才保持到下一帧再切换。
+5. `render_previs_frame({canvasId,sceneId,shotId,snapshotHash,idempotencyKey,time})` 使用真实预演视口渲染指定镜头的时间点，返回 PNG 图像内容和资源 ID；时间必须在镜头时长内。它会保存并关联镜头预览，返回更新后的快照；连续渲染需使用新快照。`render_previs_video` 仅录制最长十秒白模 WebM。
+
+### 逐镜骨骼与接触操作
+
+`apply_previs_patch.operations` 支持 `bone_override_set/clear`、`bone_keyframe_upsert/remove`、`bone_track_clear`。每项必须有演员 `id`、`shotId`、`bone`；可用的 19 个规范骨骼名由读取结果的 `capabilities.motionValidation.canonicalBones` 返回。`quaternion` 是归一化的局部 `[x,y,z,w]`，不是欧拉角。关键帧须指定镜头内的 `time`；首次写入非零秒时，须先提供零秒关键帧或显式骨骼覆盖，避免猜测初始旋转。骨骼覆盖与轨道优先于姿态预设。
+
+```json
+{"type":"bone_keyframe_upsert","id":"actor-id","shotId":"shot-id","bone":"chest","keyframeId":"chest-start","time":0,"quaternion":[0,0,0,1],"easing":"linear"}
+```
+
+读取的 `shotFrames` 返回 `boneOverrides`、`boneTracks`、首末帧的 `boneRotations` 和 `boneRotationSpace:"local_xyzw"`。这些是创作数据；批量取样的 `rigs` 才返回目标时间实际求值的规范骨骼四元数、世界关节点及接触标记坐标。
+
+标准人偶可用 `contact_constraint_set/remove` 编辑逐镜接触区间：
+
+```json
+{"type":"contact_constraint_set","id":"actor-id","shotId":"shot-id","constraintId":"left-palm-support","effector":"leftHand","surfaceObjectId":"bed-id","target":[0,0.5,0],"startTime":0,"endTime":1.2,"tolerance":0.02}
+```
+
+`effector` 支持 `leftHand/rightHand/leftFoot/rightFoot`，对应手掌／脚底标记点。有 `surfaceObjectId` 时 `target` 是该物体局部坐标，随物体变换移动；省略时是世界米制点。有效区间位于镜头内，同一肢体的区间不能重叠，每演员最多八条；`tolerance` 为 0.001–0.1 米，默认 0.02 米。被引用的支撑物不能直接删除。约束仅支持标准人偶与正数均匀根缩放，自定义模型不冒充可求解。
+
+取样返回 `ikConstraintsSupported:true`、`contactSolver:"standard_mannequin_position_ccd"`，逐条给出 `target`、`actual`、`errorMeters` 和 `status`；不可达、支撑物缺失或不支持的缩放明确报出，保存约束不代表满足约束。求解只旋转肢体、不平移演员根节点，使用有限迭代的 CCD。标记点不是精确皮肤接触面；当前没有关节限位、全身平衡或精确碰撞认证（`fullBodyIK:false`、`jointLimits:false`），仍须按真实连续帧验收起身动作。
+
+例如独立编辑第二镜最后一帧：
+
+```json
+{"type":"object_keyframe_upsert","id":"actor-id","shotId":"second-shot-id","keyframeId":"sit-end","time":3.2,"rotation":[0,0,0],"pose":"sit"}
+```
+
+预演渲染依赖真实 Web 渲染入口与 Chromium。宿主机开发设置 `CANVAS_PREVIS_RENDER_URL=http://127.0.0.1:3000/previs-render.html`，由服务端启动浏览器；该设置不是允许任意客户端指定 URL。客户端工具清单来自实际运行的后端，切换工作目录或重启旧代码不会自动包含另一分支新增的工具。
+
 ## 连接和市场的区别
 
 | 类型     | 谁配置凭据                                 | 谁可以使用和维护                                           |

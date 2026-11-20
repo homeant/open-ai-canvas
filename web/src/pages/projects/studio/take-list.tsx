@@ -138,6 +138,7 @@ function takeMeta(take: DramaTake) {
     const parts: string[] = [];
     if (take.durationMs) parts.push(secondsLabel(take.durationMs).replace(/s$/, " 秒"));
     if (take.model) parts.push(shortModelName(take.model));
+    if (take.scriptMatch === "mismatch") parts.push("与现行分镜不一致");
     return parts.join(" · ");
 }
 

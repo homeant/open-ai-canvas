@@ -275,6 +275,7 @@ export function useCanvasViewportController({
     }, [cancelViewportTransition, viewportRef]);
 
     return {
+        focusNodesInView,
         fitCanvasContent,
         fitCanvasSelection,
         focusCanvasImageNode,

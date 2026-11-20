@@ -3,7 +3,7 @@ import { GLTFLoader, SkeletonUtils } from "three-stdlib";
 
 import { previsActorProfileForArchetype } from "@/lib/canvas/previs/previs-scene";
 import { PREVIS_MANNEQUIN_BONES, type PrevisEvaluatedPose, type PrevisMannequinBone } from "@/lib/canvas/previs/previs-motion";
-import type { PrevisActorArchetype, PrevisActorProfile, PrevisRig } from "@/types/previs";
+import type { PrevisActorArchetype, PrevisActorProfile, PrevisRig, PrevisContactEffector } from "@/types/previs";
 
 /**
  * 标准人偶：本地打包的 CC0 光滑人体（Quaternius Universal Animation Library 的 Mannequin，
@@ -27,10 +27,11 @@ export type PrevisMannequin = {
     bones: Record<PrevisMannequinBone, Bone>;
     /** 与规范骨骼对应的可见关节（UAL 蒙皮骨骼），用于摆放关节控制点。 */
     joints: Record<PrevisMannequinBone, Object3D>;
+    contactMarkers: Record<PrevisContactEffector, Object3D>;
     rig: PrevisRig;
     applyPose: (pose: PrevisEvaluatedPose) => void;
     /** 规范骨架被 gizmo 直接旋转后调用：重定向并重新贴地。 */
-    sync: () => void;
+    sync: (ground?: boolean) => void;
     setColor: (color: string, selected: boolean) => void;
     dispose: () => void;
 };
@@ -271,6 +272,20 @@ export function buildPrevisMannequin(input: { template: Object3D; archetype?: Pr
         contacts.push({ marker, radius: contact.radius });
     }
 
+    const contactMarkers = {} as Record<PrevisContactEffector, Object3D>;
+    for (const side of ["left", "right"] as const) {
+        for (const part of ["Hand", "Foot"] as const) {
+            const effector = `${side}${part}` as PrevisContactEffector;
+            const owner = part === "Foot" ? joints[effector] : ual(`DEF-f_middle01${side === "left" ? "L" : "R"}`);
+            const point = part === "Foot" ? new Vector3(side === "left" ? 0.089 : -0.089, 0, 0.06) : restWorldPos.get(owner)!.clone();
+            const marker = new Object3D();
+            marker.name = `contact:${effector}`;
+            marker.position.copy(owner.worldToLocal(point.applyMatrix4(model.matrixWorld)));
+            owner.add(marker);
+            contactMarkers[effector] = marker;
+        }
+    }
+
     // 配件挂在骨骼上，但抵消骨骼静置朝向，让配件按人偶坐标系摆放。
     const attach = (boneName: string) => {
         const owner = ual(boneName);
@@ -313,7 +328,7 @@ export function buildPrevisMannequin(input: { template: Object3D; archetype?: Pr
     const contactPoint = new Vector3();
     let lift = 0;
 
-    const sync = () => {
+    const sync = (ground = true) => {
         for (const bone of PREVIS_MANNEQUIN_BONES) {
             const parent = CANONICAL_PARENT[bone];
             const world = canonicalWorld.get(bone)!;
@@ -336,6 +351,10 @@ export function buildPrevisMannequin(input: { template: Object3D; archetype?: Pr
             posedWorld.set(entry.node, desired.clone());
         }
         // 贴地：先归零 root，再按接触点最低处抬落。只在人偶局部坐标里算。
+        if (!ground) {
+            root.updateMatrixWorld(true);
+            return;
+        }
         root.position.set(0, 0, 0);
         root.updateMatrixWorld(true);
         const toRoot = root.matrixWorld.clone().invert();
@@ -352,6 +371,7 @@ export function buildPrevisMannequin(input: { template: Object3D; archetype?: Pr
         root,
         bones,
         joints,
+        contactMarkers,
         rig,
         sync,
         applyPose(pose) {

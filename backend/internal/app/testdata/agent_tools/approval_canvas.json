@@ -469,8 +469,45 @@
                   ],
                   "type": "string"
                 },
+                "aspectRatio": {
+                  "enum": [
+                    "auto",
+                    "2.39:1",
+                    "21:9",
+                    "16:9",
+                    "4:3",
+                    "1:1",
+                    "3:4",
+                    "9:16"
+                  ],
+                  "type": "string"
+                },
                 "background": {
                   "maxLength": 32,
+                  "type": "string"
+                },
+                "bone": {
+                  "enum": [
+                    "hips",
+                    "spine",
+                    "chest",
+                    "neck",
+                    "head",
+                    "leftShoulder",
+                    "leftUpperArm",
+                    "leftLowerArm",
+                    "leftHand",
+                    "rightShoulder",
+                    "rightUpperArm",
+                    "rightLowerArm",
+                    "rightHand",
+                    "leftUpperLeg",
+                    "leftLowerLeg",
+                    "leftFoot",
+                    "rightUpperLeg",
+                    "rightLowerLeg",
+                    "rightFoot"
+                  ],
                   "type": "string"
                 },
                 "cameraId": {
@@ -513,6 +550,18 @@
                   "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
                   "type": "string"
                 },
+                "constraintId": {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                "dramaCastId": {
+                  "maxLength": 80,
+                  "type": "string"
+                },
+                "dramaShotId": {
+                  "maxLength": 80,
+                  "type": "string"
+                },
                 "duration": {
                   "maximum": 60,
                   "minimum": 0.1,
@@ -525,6 +574,20 @@
                     "smooth"
                   ],
                   "type": "string"
+                },
+                "effector": {
+                  "enum": [
+                    "leftHand",
+                    "rightHand",
+                    "leftFoot",
+                    "rightFoot"
+                  ],
+                  "type": "string"
+                },
+                "endTime": {
+                  "maximum": 60,
+                  "minimum": 0,
+                  "type": "number"
                 },
                 "environmentIntensity": {
                   "maximum": 100,
@@ -539,6 +602,10 @@
                 "fps": {
                   "maximum": 60,
                   "minimum": 1,
+                  "type": "integer"
+                },
+                "gltfNodeIndex": {
+                  "minimum": 0,
                   "type": "integer"
                 },
                 "gridVisible": {
@@ -561,7 +628,8 @@
                 "kind": {
                   "enum": [
                     "primitive",
-                    "actor"
+                    "actor",
+                    "model"
                   ],
                   "type": "string"
                 },
@@ -603,6 +671,10 @@
                 },
                 "name": {
                   "maxLength": 160,
+                  "type": "string"
+                },
+                "objectId": {
+                  "maxLength": 80,
                   "type": "string"
                 },
                 "orientToPath": {
@@ -687,8 +759,32 @@
                   "maxLength": 2000,
                   "type": "string"
                 },
+                "quaternion": {
+                  "description": "归一化 [x,y,z,w]，不是欧拉角",
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 4,
+                  "minItems": 4,
+                  "type": "array"
+                },
                 "referenceNodeId": {
                   "maxLength": 120,
+                  "type": "string"
+                },
+                "renderKind": {
+                  "enum": [
+                    "frame",
+                    "video"
+                  ],
+                  "type": "string"
+                },
+                "renderResourceId": {
+                  "maxLength": 80,
+                  "type": "string"
+                },
+                "resourceId": {
+                  "maxLength": 80,
                   "type": "string"
                 },
                 "rotation": {
@@ -707,6 +803,11 @@
                   "minItems": 3,
                   "type": "array"
                 },
+                "shotId": {
+                  "description": "对象姿态/变换/动画的镜头作用域；省略为场景全局。逐镜编辑必须指定",
+                  "maxLength": 80,
+                  "type": "string"
+                },
                 "shotSize": {
                   "enum": [
                     "extreme_wide",
@@ -722,6 +823,16 @@
                   "maximum": 60,
                   "minimum": 0,
                   "type": "number"
+                },
+                "startTime": {
+                  "maximum": 60,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "surfaceObjectId": {
+                  "description": "有值时 target 为该物体局部点，否则为世界米制点",
+                  "maxLength": 80,
+                  "type": "string"
                 },
                 "target": {
                   "items": {
@@ -740,12 +851,20 @@
                   "maxLength": 160,
                   "type": "string"
                 },
+                "tolerance": {
+                  "maximum": 0.1,
+                  "minimum": 0.001,
+                  "type": "number"
+                },
                 "type": {
                   "enum": [
                     "scene_update",
                     "shot_add",
                     "shot_update",
                     "shot_remove",
+                    "shot_object_set",
+                    "shot_object_clear",
+                    "shot_render_set",
                     "object_add",
                     "object_update",
                     "object_remove",
@@ -762,7 +881,14 @@
                     "camera_keyframe_remove",
                     "light_add",
                     "light_update",
-                    "light_remove"
+                    "light_remove",
+                    "bone_override_set",
+                    "bone_override_clear",
+                    "bone_keyframe_upsert",
+                    "bone_keyframe_remove",
+                    "bone_track_clear",
+                    "contact_constraint_set",
+                    "contact_constraint_remove"
                   ],
                   "type": "string"
                 },
@@ -1642,6 +1768,31 @@
   },
   {
     "function": {
+      "description": "把当前画布已就绪并验收的音频绑定到现有角色卡。Qwen 系统音色保留音色 ID 与声音指令；更改角色资产版本，必须由用户审批。",
+      "name": "canvas_bind_character_voice",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "audioNodeId": {
+            "description": "当前画布已就绪的音频节点 ID",
+            "type": "string"
+          },
+          "characterNodeId": {
+            "description": "现有角色卡节点 ID",
+            "type": "string"
+          }
+        },
+        "required": [
+          "characterNodeId",
+          "audioNodeId"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
       "description": "操作批量创作表：增改删行、切换 try_on/creative、设1/5/10并发、增删参考图列或设全局提示词。先读 canvas_read_batch_table 获取最新 snapshotHash/rowId。行 patch 仅允许 enabled、inputNodeIds、prompt；prompt 可用返回的 @参考图1 等 mentionToken 指代本行图片。append 未传 inputNodeIds 继承上一行参考图；图片ID必须来自当前画布。禁止写 outputNodeId、任务状态、URL、storageKey、metadata。本工具只改计划，不提交收费生成。",
       "name": "canvas_edit_batch_table",
       "parameters": {
@@ -2175,11 +2326,13 @@
                     "quality",
                     "imageResolution",
                     "durationSeconds",
-                    "videoGenerateAudio"
+                    "videoGenerateAudio",
+                    "voice",
+                    "voiceInstruction"
                   ],
                   "type": "string"
                 },
-                "maxItems": 6,
+                "maxItems": 8,
                 "minItems": 1,
                 "type": "array",
                 "uniqueItems": true
@@ -2269,6 +2422,14 @@
           },
           "videoStartFrameNodeId": {
             "description": "视频首帧图片ID，须在 referenceNodeIds 中",
+            "type": "string"
+          },
+          "voice": {
+            "description": "仅音频；从 model_list.models[].audioSettings.voice.voices 选择音色 ID，也可使用当前账号已有的自定义音色 ID",
+            "type": "string"
+          },
+          "voiceInstruction": {
+            "description": "仅音频；独立声音指令，不写进朗读 prompt。Qwen 最多 100 计费字符",
             "type": "string"
           }
         },

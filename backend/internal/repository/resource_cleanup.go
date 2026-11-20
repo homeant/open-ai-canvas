@@ -74,6 +74,15 @@ func (r *Repository) DeleteDetachedResources(resources []model.Resource, deletio
 		if len(logReferences) > 0 {
 			return ErrResourceCleanupStillReferenced
 		}
+		for userID := range documentsByUser {
+			refs, err := New(tx).DramaResourceReferences(userID, resourceIDs)
+			if err != nil {
+				return err
+			}
+			if len(refs) > 0 {
+				return ErrResourceCleanupStillReferenced
+			}
+		}
 		for _, check := range []struct {
 			model any
 			query string
@@ -90,6 +99,7 @@ func (r *Repository) DeleteDetachedResources(resources []model.Resource, deletio
 			{&model.DramaSegment{}, "tail_frame_resource_id IN ?"},
 			{&model.DramaEpisode{}, "final_resource_id IN ?"},
 			{&model.DramaTake{}, "resource_id IN ?"},
+			{&model.DramaAudioResourceLink{}, "resource_id IN ?"},
 		} {
 			var count int64
 			if err := tx.Model(check.model).Where(check.query, resourceIDs).Count(&count).Error; err != nil {

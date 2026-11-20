@@ -58,6 +58,9 @@ import {
 } from "@/lib/canvas/previs/previs-recovery";
 import { disposePrevisAdoptionFailure, disposePrevisHelper, disposePrevisModelResources, disposePrevisObject3D, resolvePrevisLoadOwnership } from "@/lib/canvas/previs/previs-resources";
 import { resolvePrevisActorColor, previsTransformPathLength, finitePrevisTransformKeyframes, interpolatePrevisTransform } from "@/lib/canvas/previs/previs-scene";
+import { resolvePrevisShotObject } from "@/lib/canvas/previs/previs-shot-state";
+import { inspectPrevisFrame } from "@/lib/canvas/previs/previs-frame-diagnostics";
+import { solvePrevisContacts, readPrevisRigState } from "@/lib/canvas/previs/previs-contact-constraints";
 import {
     PREVIS_DEFAULT_VIEW_MODE,
     previsViewFramingKey,
@@ -84,6 +87,7 @@ import { evaluatePrevisActorPose, PREVIS_MANNEQUIN_BONES } from "@/lib/canvas/pr
 export type PrevisOrbitControls = ComponentRef<typeof OrbitControls>;
 
 export type PrevisViewportHandle = {
+    inspectFrame?: () => ReturnType<typeof inspectPrevisFrame>;
     /** 始终从当前镜头摄影机、按镜头画幅渲染，与编辑视口的观察相机无关。 */
     capture: (mode: PrevisRenderMode, options?: PrevisCaptureOptions) => Promise<Blob>;
     recordVideo: (duration: number, fps: number, mode?: PrevisRenderMode, options?: PrevisCaptureOptions) => Promise<Blob>;
@@ -126,6 +130,7 @@ type PrevisViewportProps = {
     onObjectTransform: (id: string, from: PrevisTransform, to: PrevisTransform) => void;
     onBoneTransform: (id: string, bone: string, rotation: PrevisQuat) => void;
     onActorRigReady: (id: string, rig: PrevisRig, animations: AnimationClip[]) => void;
+    onModelLoadStateChange?: (id: string, signal: PrevisLoadSignal) => void;
     /** 选中的摄影机 id；导演视角中显示可拖动的摄影机 gizmo。 */
     selectedCameraId?: string | null;
     onSelectCamera?: (id: string) => void;
@@ -210,9 +215,13 @@ export const PrevisViewport = forwardRef<PrevisViewportHandle, PrevisViewportPro
         setFailedLoads({});
         setRetryKey((value) => value + 1);
     }, [releaseCapture]);
-    const onLoadStateChange = useCallback((id: string, signal: PrevisLoadSignal, retryLoad: () => void) => {
-        setFailedLoads((current) => upsertPrevisFailedLoad(current, id, signal, retryLoad));
-    }, []);
+    const onLoadStateChange = useCallback(
+        (id: string, signal: PrevisLoadSignal, retryLoad: () => void) => {
+            setFailedLoads((current) => upsertPrevisFailedLoad(current, id, signal, retryLoad));
+            props.onModelLoadStateChange?.(id, signal);
+        },
+        [props.onModelLoadStateChange],
+    );
     // 稳定引用：否则新的监听 effect 会在每次父级 render 时摘除重装。
     const onContextLost = useCallback(() => {
         // 上下文丢失后相机与射线结果都不可信，旧地面点必须作废，恢复后需重新移动 pointer。
@@ -242,6 +251,11 @@ export const PrevisViewport = forwardRef<PrevisViewportHandle, PrevisViewportPro
             capture: (mode, options) => captureFrame(usableContext, mode, options),
             recordVideo: (duration, fps, mode, options) => recordCanvas(usableContext, duration, fps, mode, options),
             createShotSurface: (options) => createPrevisShotSurface(usableContext, options),
+            inspectFrame: () => {
+                const context = usableContext();
+                if (!context) throw new Error("预演视口尚未就绪，不能检查碰撞风险");
+                return inspectPrevisFrame(context.scene, sceneRef.current);
+            },
             readCameraTransform: () => {
                 const camera = usableContext()?.camera;
                 return camera ? { position: camera.position.toArray() as PrevisTransform["position"], rotation: [camera.rotation.x, camera.rotation.y, camera.rotation.z], scale: [1, 1, 1] } : null;
@@ -513,6 +527,7 @@ function PrevisSceneContent({
     const containerAspect = size.width / Math.max(size.height, 1);
     const rawCamFraming = resolvePrevisViewFraming({ scene, mode: viewMode, playhead, cameraId: selectedCameraId, viewportAspect: containerAspect });
     const shotAspect = previsAspectValue(resolvePrevisActiveShot(scene)?.aspectRatio, containerAspect);
+    const shotObjects = useMemo(() => scene.objects.map((object) => resolvePrevisShotObject(object, resolvePrevisActiveShot(scene))), [scene]);
     const camFraming = rawCamFraming ? { ...rawCamFraming, fov: resolvePrevisContainerFov(rawCamFraming.fov, shotAspect, containerAspect) } : null;
     const orthoFraming = resolvePrevisOrthographicFraming({ scene, mode: viewMode });
     const effectiveViewport = resolvePrevisEffectiveViewport({ mode: viewMode, framing: camFraming });
@@ -524,8 +539,8 @@ function PrevisSceneContent({
         [effectiveViewport.orbit],
     );
     const actorMotionPaths = useMemo(
-        () => (showMotionPaths ? scene.objects.filter((object) => object.visible && (object.kind === "actor" || object.primitive === "character") && previsTransformPathLength(object.keyframes) > 0.001) : []),
-        [scene.objects, showMotionPaths],
+        () => (showMotionPaths ? shotObjects.filter((object) => object.visible && (object.kind === "actor" || object.primitive === "character") && previsTransformPathLength(object.keyframes) > 0.001) : []),
+        [shotObjects, showMotionPaths],
     );
     const cameraMotionPaths = useMemo(() => (showMotionPaths ? scene.cameras.filter((item) => previsTransformPathLength(item.keyframes) > 0.001) : []), [scene.cameras, showMotionPaths]);
     const suspendDisplayMaterialOverride = useCallback(() => {
@@ -848,7 +863,7 @@ function PrevisSceneContent({
                     onMoveWaypoint={onMovePathWaypoint ? (index, point) => onMovePathWaypoint("camera", item.id, index, point) : undefined}
                 />
             ))}
-            {scene.objects
+            {shotObjects
                 .filter((item) => item.visible)
                 .map((object) => (
                     <PrevisObjectView
@@ -1259,6 +1274,7 @@ function PrevisObjectView({
         <>
             <group
                 ref={setTarget}
+                userData={{ previsObjectId: object.id }}
                 position={transform.position}
                 rotation={transform.rotation}
                 scale={transform.scale}
@@ -1667,7 +1683,7 @@ function PrevisModel({
     const modelUrl = object.url;
     // 展示身份 = generation + 解析输入。render 阶段用它屏蔽旧资源，
     // 因此 prop/retry 变化的第一次 render 就已卸下上一代 model，随后 cleanup 才 dispose。
-    const identity = previsLoadIdentity({ generation: loadGeneration, url: modelUrl, storageKey: object.storageKey, kind: object.kind });
+    const identity = `${previsLoadIdentity({ generation: loadGeneration, url: modelUrl, storageKey: object.storageKey, kind: object.kind })}:${object.gltfNodeIndex ?? "all"}:${object.preserveGLBScale ? "meters" : "normalized"}`;
     type LoadedModel = { model: Object3D; rig: PrevisRig; animations: AnimationClip[]; restRotations: Partial<Record<PrevisHumanoidBone, PrevisQuat>> };
     const [loaded, setLoaded] = useState<{ identity: string; value: LoadedModel } | null>(null);
     const display = resolvePrevisDisplay(loaded, identity);
@@ -1772,8 +1788,27 @@ function PrevisModel({
                             // clone 与 source 共享 geometry/material/texture。
                             // 采纳后 source 的 Object3D 层级可被 GC，共享 GPU 资源由 owned clone 持有，
                             // 最终只在 clone 的 cleanup 里释放一次；这里绝不 dispose source。
-                            clone = SkeletonUtils.clone(gltf.scene);
-                            normalizeModel(clone, object.castShadow, object.receiveShadow);
+                            let source: Object3D = gltf.scene;
+                            if (object.gltfNodeIndex !== undefined) {
+                                let selectedNode: Object3D | null = null;
+                                gltf.scene.traverse((candidate) => {
+                                    if (gltf.parser.associations.get(candidate)?.nodes === object.gltfNodeIndex) selectedNode = candidate;
+                                });
+                                if (!selectedNode) throw new Error("GLB node not found");
+                                gltf.scene.updateMatrixWorld(true);
+                                source = selectedNode;
+                            }
+                            clone = SkeletonUtils.clone(source);
+                            if (source !== gltf.scene) source.matrixWorld.decompose(clone.position, clone.quaternion, clone.scale);
+                            if (object.preserveGLBScale) {
+                                clone.traverse((child) => {
+                                    const mesh = child as Mesh;
+                                    if (mesh.isMesh) {
+                                        mesh.castShadow = object.castShadow;
+                                        mesh.receiveShadow = object.receiveShadow;
+                                    }
+                                });
+                            } else normalizeModel(clone, object.castShadow, object.receiveShadow);
                             const nextRig = inferPrevisRig(
                                 clone,
                                 gltf.animations.map((clip) => clip.name),
@@ -1815,7 +1850,7 @@ function PrevisModel({
             mixerRef.current = null;
             disposePrevisModelResources({ model: owned.model, mixer: owned.mixer });
         };
-    }, [identity, modelUrl, object.storageKey]);
+    }, [identity, modelUrl, object.storageKey, object.gltfNodeIndex, object.preserveGLBScale]);
 
     useEffect(() => {
         if (!model) return;
@@ -1858,7 +1893,7 @@ function PrevisModel({
         applyPrevisBoneTracks(model, object, playhead, rig, restRotations, Boolean(activeAnimation && motion));
         helper?.updateMatrixWorld(true);
         invalidate();
-    }, [activeAnimation, helper, invalidate, model, motion, object.boneOverrides, object.boneTracks, object.pose, playhead, restRotations, rig]);
+    }, [activeAnimation, helper, invalidate, model, motion, object.boneOverrides, object.boneTracks, object.pose, object.keyframes, playhead, restRotations, rig]);
 
     useEffect(() => {
         if (!model) return;
@@ -1977,6 +2012,7 @@ function PrevisMannequinBody({
     onActorRigReady: (rig: PrevisRig, animations: AnimationClip[]) => void;
 }) {
     const invalidate = useThree((state) => state.invalidate);
+    const world = useThree((state) => state.scene);
     const profile = resolvePrevisMannequinProfile(object.archetype || "adult", object.actorProfile);
     const profileKey = previsMannequinProfileKey(object.archetype, profile);
     // 只在体型或阴影设置变化时重建骨架；颜色、姿态都在已有骨架上原地更新。
@@ -2010,10 +2046,23 @@ function PrevisMannequinBody({
     useEffect(() => {
         const root = mannequin.root;
         root.userData.previsEvaluate = (time: number) => mannequin.applyPose(evaluatePrevisActorPose(objectRef.current, time));
+        root.userData.previsConstrain = (time: number) => {
+            root.userData.previsContactResults = solvePrevisContacts(mannequin, world, objectRef.current.contactConstraints || [], time);
+            root.userData.previsRigState = readPrevisRigState(mannequin);
+        };
         return () => {
             delete root.userData.previsEvaluate;
+            delete root.userData.previsConstrain;
+            delete root.userData.previsContactResults;
+            delete root.userData.previsRigState;
         };
-    }, [mannequin]);
+    }, [mannequin, world]);
+
+    useFrame(() => {
+        if (!objectRef.current.contactConstraints?.length) return;
+        mannequin.applyPose(evaluatePrevisActorPose(objectRef.current, playhead));
+        mannequin.root.userData.previsConstrain?.(playhead);
+    });
 
     const selectedBoneObject = selectedBone && selectedBone in mannequin.bones ? mannequin.bones[selectedBone as keyof typeof mannequin.bones] : null;
     return (

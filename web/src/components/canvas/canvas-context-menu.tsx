@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 
 import { CanvasCreateMenu, type CanvasCreateCommand } from "@/components/canvas/canvas-create-menu";
+import { CanvasArrangeControl } from "./canvas-arrange-control";
+import type { CanvasArrangeMode } from "@/lib/canvas/canvas-smart-layout";
 import { ASSET_ASSIGNABLE_CATEGORY_OPTIONS } from "@/lib/asset-category";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
@@ -85,6 +87,7 @@ type CanvasNodeContextMenuProps = {
     onSetAssetCategory: (category: CanvasAssetCategory) => void;
     onToggleFrame: () => void;
     onSpreadSelection?: () => void;
+    onArrange?: (mode: CanvasArrangeMode) => void;
     onCopySelection?: () => void;
     onDeleteSelection?: () => void;
     onSendToAgent?: () => void;
@@ -134,6 +137,7 @@ export function CanvasNodeContextMenu({
     onSetAssetCategory,
     onToggleFrame,
     onSpreadSelection,
+    onArrange,
     onCopySelection,
     onDeleteSelection,
     onSendToAgent,
@@ -236,9 +240,10 @@ export function CanvasNodeContextMenu({
                         </>
                     ) : menu.type === "canvas" ? (
                         <>
+                            {onArrange ? <div className="p-1"><CanvasArrangeControl selectedCount={selectedCount} onArrange={(mode) => runAction(() => onArrange(mode))} /></div> : null}
                             {hasMultiSelection ? (
                                 <>
-                                    <MenuButton icon={<LayoutTemplate className="size-4" />} label="自适应整理画布" detail="保持相对布局并加大边距" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />
+                                    {!onArrange ? <MenuButton icon={<LayoutTemplate className="size-4" />} label="仅消除重叠" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} /> : null}
                                     {downloadSelectionButton}
                                     <MenuDivider />
                                 </>
@@ -255,7 +260,7 @@ export function CanvasNodeContextMenu({
                         <>
                             <MenuHeader title={`已选 ${selectedCount} 个节点`} />
                             <MenuSection label="选区" />
-                            <MenuButton icon={<LayoutTemplate />} label="自适应整理画布" detail="保持相对布局并加大边距" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />
+                            {onArrange ? <div className="p-1"><CanvasArrangeControl selectedCount={selectedCount} onArrange={(mode) => runAction(() => onArrange(mode))} /></div> : <MenuButton icon={<LayoutTemplate />} label="仅消除重叠" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />}
                             <MenuDivider />
                             <MenuButton icon={<Copy />} label={`复制 ${selectedCount} 个节点`} shortcut="⌘C" disabled={!onCopySelection} onClick={() => onCopySelection && runAction(onCopySelection)} />
                             {downloadSelectionButton}

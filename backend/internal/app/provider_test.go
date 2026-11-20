@@ -153,6 +153,13 @@ func TestProtocolRequestURLCanResolveSameOriginRootPath(t *testing.T) {
 	if got != "https://apihub.agnes-ai.com/agnesapi?video_id=video-1&model_name=agnes-video-2.5" {
 		t.Fatalf("root path URL = %q", got)
 	}
+	metaso, err := protocolRequestURL("https://metaso.cn", protocol.RequestSpec{Path: "/api/minimax/v2/video_generation", OriginPath: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metaso != "https://metaso.cn/api/minimax/v2/video_generation" {
+		t.Fatalf("Metaso URL = %q", metaso)
+	}
 }
 
 func TestRunVideoTaskUsesDeclarativeAgnesJSONProtocol(t *testing.T) {

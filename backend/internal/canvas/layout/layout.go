@@ -13,8 +13,7 @@ const (
 	// 与 canvas-layout.ts 的常量一一对应。
 	FlowColumnGap = 120
 	LaneGap       = 96
-	LaneNodeGap   = 36
-	GridNodeGap   = 32
+	GridNodeGap   = 56
 	// 新增节点与已有节点之间的最小空隙（落位避让用）。
 	PlacementGap = 40
 )
@@ -24,15 +23,16 @@ var LaneOrder = []string{"text", "image", "video", "audio"}
 
 // Node 是排布所需的节点快照。Width/Height 为 0 时按默认尺寸补齐。
 type Node struct {
-	ID      string
-	Type    string
-	Lane    string
-	X, Y    float64
-	Width   float64
-	Height  float64
-	Locked  bool
-	NoMove  bool // 容器节点（背板/文件夹）本身不参与整理
-	Movable bool
+	ID        string
+	CreatedAt string
+	Type      string
+	Lane      string
+	X, Y      float64
+	Width     float64
+	Height    float64
+	Locked    bool
+	NoMove    bool // 容器节点（背板/文件夹）本身不参与整理
+	Movable   bool
 }
 
 // Position 是排布结果。
@@ -139,190 +139,43 @@ func byPosition(nodes []Node) []Node {
 	return sorted
 }
 
-// Auto 复刻 layoutCanvasAuto：节点之间有连线时按依赖分层，否则按媒体类型泳道。
+// Auto arranges movable nodes and preserves locked / container obstacles.
 func Auto(nodes []Node, edges []Edge) map[string]Position {
-	if len(nodes) < 2 {
+	candidates, fixed := []Node{}, []Node{}
+	for _, n := range nodes {
+		if n.Locked || n.NoMove {
+			fixed = append(fixed, n)
+		} else {
+			candidates = append(candidates, n)
+		}
+	}
+	if len(candidates) < 2 {
 		return map[string]Position{}
 	}
-	if connected(nodes, edges) {
-		return Flow(nodes, edges)
-	}
-	return ByLane(nodes)
+	return GraphWithObstacles(candidates, edges, fixed)
 }
 
-func connected(nodes []Node, edges []Edge) bool {
-	ids := make(map[string]bool, len(nodes))
-	for _, node := range nodes {
-		ids[node.ID] = true
-	}
-	for _, edge := range edges {
-		if ids[edge.From] && ids[edge.To] {
-			return true
-		}
-	}
-	return false
-}
-
-// Flow 复刻 layoutCanvasFlow：Kahn 拓扑分层从左到右，层内按泳道竖排。
-// 环上的节点留在第 0 层，避免布局死循环。
+// Flow lays out each connected component independently and packs loose media by lane.
 func Flow(nodes []Node, edges []Edge) map[string]Position {
-	result := map[string]Position{}
-	if len(nodes) == 0 {
-		return result
-	}
-	index := make(map[string]Node, len(nodes))
-	for _, node := range nodes {
-		index[node.ID] = node
-	}
-	inbound := make(map[string]int, len(nodes))
-	outbound := make(map[string][]string, len(nodes))
-	for _, node := range nodes {
-		inbound[node.ID] = 0
-	}
-	for _, edge := range edges {
-		if _, ok := index[edge.From]; !ok {
-			continue
-		}
-		if _, ok := index[edge.To]; !ok {
-			continue
-		}
-		inbound[edge.To]++
-		outbound[edge.From] = append(outbound[edge.From], edge.To)
-	}
-
-	queue := make([]string, 0, len(nodes))
-	for _, node := range nodes {
-		if inbound[node.ID] == 0 {
-			queue = append(queue, node.ID)
-		}
-	}
-	layer := map[string]int{}
-	for _, id := range queue {
-		layer[id] = 0
-	}
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		for _, target := range outbound[id] {
-			if layer[target] < layer[id]+1 {
-				layer[target] = layer[id] + 1
-			}
-			inbound[target]--
-			if inbound[target] == 0 {
-				queue = append(queue, target)
-			}
-		}
-	}
-	for _, node := range nodes {
-		if _, ok := layer[node.ID]; !ok {
-			layer[node.ID] = 0
-		}
-	}
-
-	left, top := minX(nodes), minY(nodes)
-	layerIDs := make([]int, 0, len(nodes))
-	seen := map[int]bool{}
-	for _, node := range nodes {
-		if !seen[layer[node.ID]] {
-			seen[layer[node.ID]] = true
-			layerIDs = append(layerIDs, layer[node.ID])
-		}
-	}
-	sort.Ints(layerIDs)
-	layerX := map[int]float64{}
-	x := left
-	for _, value := range layerIDs {
-		members := nodesInLayer(nodes, layer, value)
-		layerX[value] = x
-		x += maxWidth(members) + FlowColumnGap
-	}
-
-	laneTop := top
-	for _, lane := range LaneOrder {
-		lanes := laneNodes(nodes, lane)
-		if len(lanes) == 0 {
-			continue
-		}
-		stacks := map[int][]Node{}
-		stackOrder := make([]int, 0, len(lanes))
-		for _, node := range lanes {
-			value := layer[node.ID]
-			if _, ok := stacks[value]; !ok {
-				stackOrder = append(stackOrder, value)
-			}
-			stacks[value] = append(stacks[value], node)
-		}
-		laneHeight := 0.0
-		for _, stack := range stacks {
-			height := 0.0
-			for _, node := range stack {
-				height += node.height()
-			}
-			height += float64(max(0, len(stack)-1)) * LaneNodeGap
-			if height > laneHeight {
-				laneHeight = height
-			}
-		}
-		sort.Ints(stackOrder)
-		for _, value := range stackOrder {
-			stack := byPosition(stacks[value])
-			y := laneTop
-			for _, node := range stack {
-				result[node.ID] = Position{X: layerX[value], Y: y}
-				y += node.height() + LaneNodeGap
-			}
-		}
-		laneTop += laneHeight + LaneGap
-	}
-	return result
-}
-
-func nodesInLayer(nodes []Node, layer map[string]int, value int) []Node {
-	subset := make([]Node, 0, len(nodes))
-	for _, node := range nodes {
-		if layer[node.ID] == value {
-			subset = append(subset, node)
-		}
-	}
-	return subset
+	return GraphWithObstacles(nodes, edges, nil)
 }
 
 func laneNodes(nodes []Node, lane string) []Node {
-	subset := make([]Node, 0, len(nodes))
-	for _, node := range nodes {
-		if node.Lane == lane {
-			subset = append(subset, node)
+	result := []Node{}
+	for _, n := range nodes {
+		if n.Lane == lane {
+			result = append(result, n)
 		}
-	}
-	return subset
-}
-
-// ByLane 复刻 layoutCanvasNodesByMediaType：每个泳道内部按网格排布（最多 4 列）。
-func ByLane(nodes []Node) map[string]Position {
-	result := map[string]Position{}
-	if len(nodes) == 0 {
-		return result
-	}
-	left, top := minX(nodes), minY(nodes)
-	laneTop := top
-	for _, lane := range LaneOrder {
-		lanes := byPosition(laneNodes(nodes, lane))
-		if len(lanes) == 0 {
-			continue
-		}
-		columns := min(4, max(1, ceilSqrt(len(lanes))))
-		cellWidth := maxWidth(lanes) + GridNodeGap
-		cellHeight := maxHeight(lanes) + GridNodeGap
-		for index, node := range lanes {
-			result[node.ID] = Position{
-				X: left + float64(index%columns)*cellWidth,
-				Y: laneTop + float64(index/columns)*cellHeight,
-			}
-		}
-		rows := float64(ceilDiv(len(lanes), columns))
-		laneTop += rows*cellHeight - GridNodeGap + LaneGap
 	}
 	return result
+}
+
+// ByLane uses actual node sizes and at most six columns per media lane.
+func ByLane(nodes []Node) map[string]Position {
+	if len(nodes) == 0 {
+		return map[string]Position{}
+	}
+	return packBlocks([]layoutBlock{mediaBlock(nodes)}, Position{minX(nodes), minY(nodes)}, nil)
 }
 
 // Linear 复刻 layoutCanvasNodes：单行 / 单列 / 方阵。

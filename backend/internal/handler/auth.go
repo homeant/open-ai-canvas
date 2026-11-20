@@ -373,7 +373,24 @@ func proxySystemRequestPath(c *gin.Context, svc *service.Service, user *model.Us
 	capability := "text"
 	var channelModel *model.ChannelModel
 	if !(c.Request.Method == http.MethodGet && path == "/models") {
-		if c.Request.Method == http.MethodGet && systemMiniMaxTaskPath.MatchString(path) && modelName == "" {
+		if c.Request.Method == http.MethodGet && systemEvoLinkTaskPath.MatchString(path) && modelName == "" {
+			for _, candidate := range []model.ChannelInterfaceType{model.ChannelInterfaceEvoLinkSeedAudio, model.ChannelInterfaceEvoLinkQwenAudioTTS} {
+				supported, supportErr := svc.SystemChannelHasProtocol(channel.ID, candidate)
+				if supportErr != nil {
+					failService(c, supportErr)
+					return
+				}
+				if supported {
+					protocol = candidate
+					break
+				}
+			}
+			if protocol == "" {
+				fail(c, http.StatusForbidden, errors.New("当前系统渠道未授权 EvoLink 音频任务协议"))
+				return
+			}
+			capability = "audio"
+		} else if c.Request.Method == http.MethodGet && systemMiniMaxTaskPath.MatchString(path) && modelName == "" {
 			supported, supportErr := svc.SystemChannelHasProtocol(channel.ID, model.ChannelInterfaceMiniMaxVideo)
 			if supportErr != nil {
 				failService(c, supportErr)

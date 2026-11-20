@@ -56,11 +56,34 @@ func (r *Repository) ActiveTaskCountForProjectIDs(userID string, projectIDs []st
 	return count, err
 }
 
-// 任务领取以数据库租约为真相；PostgreSQL 锁行跳过竞争任务，SQLite 继续依赖条件更新保证单实例原子性。
+// 任务领取以数据库租约为真相；PostgreSQL 锁行跳过竞争任务，SQLite 用单条更新原子领取。
 func (r *Repository) ClaimNextTask(owner string, leaseDuration time.Duration) (*model.Task, error) {
 	var task model.Task
 	now := time.Now()
 	leaseExpiresAt := now.Add(leaseDuration)
+	if r.Dialect() == "sqlite" {
+		// A read transaction cannot be upgraded after another SQLite writer commits.
+		// Claim in one statement so the busy timeout can wait for the writer lock.
+		eligible := "(status = ? OR (status = ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?))) AND (next_poll_at IS NULL OR next_poll_at <= ?)"
+		result := r.db.Model(&task).Clauses(clause.Returning{}).
+			Where("id = (SELECT id FROM tasks WHERE "+eligible+" ORDER BY created_at ASC LIMIT 1)", model.TaskStatusQueued, model.TaskStatusRunning, now, now).
+			Updates(map[string]any{
+				"status": model.TaskStatusRunning,
+				// 回查已被上游接收的任务时保留原进度，避免每轮领取时文案来回跳。
+				"stage":            gorm.Expr("CASE WHEN provider_request_id <> '' THEN stage ELSE ? END", "后端接管任务"),
+				"progress":         gorm.Expr("CASE WHEN provider_request_id <> '' THEN progress ELSE ? END", 15),
+				"attempts":         gorm.Expr("attempts + ?", 1),
+				"started_at":       gorm.Expr("COALESCE(started_at, ?)", now),
+				"lease_owner":      owner,
+				"lease_expires_at": leaseExpiresAt,
+				"next_poll_at":     nil,
+				"updated_at":       now,
+			})
+		if result.Error != nil || result.RowsAffected == 0 {
+			return nil, result.Error
+		}
+		return &task, nil
+	}
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		query := tx.Where("(status = ? OR (status = ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?))) AND (next_poll_at IS NULL OR next_poll_at <= ?)", model.TaskStatusQueued, model.TaskStatusRunning, now, now).
 			Order("created_at asc").Limit(1)

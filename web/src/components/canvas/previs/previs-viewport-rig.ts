@@ -5,6 +5,7 @@ import { disposePrevisMaterials } from "@/lib/canvas/previs/previs-resources";
 import { type PrevisHumanoidBone, type PrevisObject, type PrevisQuat, type PrevisRig } from "@/types/previs";
 import { previsPoseBoneDeltas } from "@/lib/canvas/previs/previs-scene";
 import { resolvePrevisBoneRotation } from "@/lib/canvas/previs/previs-animation-semantics";
+import { resolvePrevisPoseTransition } from "@/lib/canvas/previs/previs-shot-state";
 
 export function screenPixelsToWorldRadius(camera: Camera, distance: number, pixels: number, viewportHeight: number) {
     const height = Math.max(1, viewportHeight);
@@ -212,7 +213,17 @@ export function normalizeBoneName(name: string) {
 
 export function applyPrevisBoneTracks(model: Object3D, object: PrevisObject, playhead: number, rig: PrevisRig | null, restRotations: Partial<Record<PrevisHumanoidBone, PrevisQuat>>, hasActiveMotion: boolean) {
     if (!rig) return;
-    const poseDeltas = hasActiveMotion ? {} : previsPoseBoneDeltas(object.pose || "stand");
+    const transition = resolvePrevisPoseTransition(object, playhead);
+    const poseFrom = previsPoseBoneDeltas(transition.from),
+        poseTo = previsPoseBoneDeltas(transition.to);
+    const poseDeltas = hasActiveMotion
+        ? {}
+        : Object.fromEntries(
+              Object.keys(rig.boneMap).map((bone) => [
+                  bone,
+                  new Quaternion(...(poseFrom[bone as PrevisHumanoidBone] || [0, 0, 0, 1])).slerp(new Quaternion(...(poseTo[bone as PrevisHumanoidBone] || [0, 0, 0, 1])), transition.progress).toArray() as PrevisQuat,
+              ]),
+          );
     Object.entries(rig.boneMap).forEach(([bone, name]) => {
         const target = name ? model.getObjectByName(name) : null;
         if (!target) return;

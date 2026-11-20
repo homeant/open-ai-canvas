@@ -31,6 +31,8 @@ docs/content/docs/backend/*
 !docs/content/docs/backend/newapi-channel-2.mdx
 !docs/content/docs/backend/bailian-minimax-video.mdx
 !docs/content/docs/backend/minimax-h3-image.mdx
+!docs/content/docs/backend/minimax-speech.mdx
+!docs/content/docs/backend/evolink-seed-audio.mdx
 !docs/content/docs/backend/video-token-billing.mdx
 !docs/content/docs/backend/video-depth.mdx
 !docs/content/docs/backend/image-usage-billing.mdx

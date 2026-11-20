@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 106
+const CurrentSchemaVersion int64 = 112
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -373,6 +373,46 @@ var schemaMigrations = []migration{
 	{version: 106, name: "external_mcp_access", checksum: "sha256:external-mcp-access-v102", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.UserAPIKey{}, &model.MCPClient{}, &model.MCPAuthorizationCode{}, &model.Task{}, &model.Project{})
 	}},
+	{version: 107, name: "project_external_request_hash", checksum: "sha256:project-external-request-hash-v103", apply: migrateProjectExternalRequestHash},
+	{version: 108, name: "drama_segment_prompt_revisions", checksum: "sha256:drama-segment-prompt-revisions-v104", apply: migrateDramaSegmentPromptRevisions},
+	{version: 109, name: "drama_mcp_editing", checksum: "sha256:drama-mcp-editing-v109", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaMutationReceipt{}, &model.DramaShot{}, &model.DramaSegment{}, &model.DramaTake{})
+	}},
+	{version: 110, name: "drama_audio_versions", checksum: "sha256:drama-audio-versions-v110", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaAudioVersion{}, &model.DramaAudioResourceLink{})
+	}},
+	{version: 111, name: "drama_audio_checks", checksum: "sha256:drama-audio-checks-v111", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaAudioCheck{})
+	}},
+	{version: 112, name: "drama_shot_media", checksum: "sha256:drama-shot-media-v112", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.DramaShot{}, &model.DramaTake{}, &model.DramaShotMediaReview{})
+	}},
+}
+
+func migrateDramaSegmentPromptRevisions(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.DramaSegmentPromptRevision{}); err != nil {
+		return err
+	}
+	if !tx.Migrator().HasTable(&model.DramaSegment{}) {
+		return nil
+	}
+	var segments []model.DramaSegment
+	if err := tx.Where("video_prompt_override <> ''").Find(&segments).Error; err != nil {
+		return err
+	}
+	for _, segment := range segments {
+		if err := tx.Create(&model.DramaSegmentPromptRevision{ID: kernel.NewID(), ProjectID: segment.ProjectID, SegmentID: segment.ID, Revision: segment.Revision, Prompt: segment.VideoPromptOverride, CreatedAt: segment.UpdatedAt}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateProjectExternalRequestHash(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&model.Project{}) || tx.Migrator().HasColumn(&model.Project{}, "ExternalRequestHash") {
+		return nil
+	}
+	return tx.Migrator().AddColumn(&model.Project{}, "ExternalRequestHash")
 }
 
 func migrateAPILogGenerationContent(tx *gorm.DB) error {
@@ -1261,6 +1301,9 @@ func MigrateSchema(db *gorm.DB) error {
 		if err := normalizeLegacyWorkbenchMigration(tx); err != nil {
 			return err
 		}
+		if err := relocateLegacyExternalMCPMigrations(tx); err != nil {
+			return err
+		}
 		plan, err := migrationsForDatabase(tx)
 		if err != nil {
 			return err
@@ -1380,6 +1423,73 @@ func relocateLegacyOfficialMigrations(tx *gorm.DB) error {
 			}
 		}
 		return nil
+	}
+	return nil
+}
+
+// relocateLegacyExternalMCPMigrations moves the complete local 102–104 ledger
+// past the upstream 102–105 migrations. It preserves the applied timestamps and
+// refuses partial or unexpected records so an existing database is never guessed into shape.
+func relocateLegacyExternalMCPMigrations(tx *gorm.DB) error {
+	var first schemaMigration
+	err := tx.First(&first, "version = ?", 102).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if first.Name != "external_mcp_access" {
+		return nil
+	}
+	legacy := []struct {
+		oldVersion int64
+		newVersion int64
+		name       string
+		checksum   string
+	}{
+		{102, 106, "external_mcp_access", "sha256:external-mcp-access-v102"},
+		{103, 107, "project_external_request_hash", "sha256:project-external-request-hash-v103"},
+		{104, 108, "drama_segment_prompt_revisions", "sha256:drama-segment-prompt-revisions-v104"},
+	}
+	var maxVersion int64
+	if err := tx.Model(&schemaMigration{}).Select("COALESCE(MAX(version), 0)").Scan(&maxVersion).Error; err != nil {
+		return err
+	}
+	if maxVersion != 104 {
+		return fmt.Errorf("本地 MCP 迁移账本版本异常：%d", maxVersion)
+	}
+	for _, table := range []string{"user_api_keys", "mcp_clients", "mcp_authorization_codes", "drama_segment_prompt_revisions"} {
+		if !tx.Migrator().HasTable(table) {
+			return fmt.Errorf("本地 MCP 迁移表缺失：%s", table)
+		}
+	}
+	if !tx.Migrator().HasColumn(&model.Project{}, "ExternalRequestHash") {
+		return errors.New("本地 MCP 迁移字段缺失：projects.external_request_hash")
+	}
+	rows := make([]schemaMigration, 0, len(legacy))
+	for _, item := range legacy {
+		var row schemaMigration
+		if err := tx.First(&row, "version = ?", item.oldVersion).Error; err != nil {
+			return fmt.Errorf("本地 MCP 迁移账本不完整：%w", err)
+		}
+		if row.Name != item.name || row.Checksum != item.checksum {
+			return fmt.Errorf("本地 MCP 迁移 %d 不匹配", item.oldVersion)
+		}
+		rows = append(rows, row)
+	}
+	for i, row := range rows {
+		item := legacy[i]
+		if err := tx.Create(&schemaMigration{Version: item.newVersion, Name: row.Name, Checksum: row.Checksum, AppliedAt: row.AppliedAt}).Error; err != nil {
+			return err
+		}
+		result := tx.Where("version = ? AND name = ? AND checksum = ?", row.Version, row.Name, row.Checksum).Delete(&schemaMigration{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("本地 MCP 迁移 %d 转换失败", row.Version)
+		}
 	}
 	return nil
 }

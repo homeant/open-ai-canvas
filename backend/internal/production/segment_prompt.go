@@ -8,16 +8,17 @@ import (
 
 // SegmentShot 是剧情段提示词需要的单镜信息。
 type SegmentShot struct {
-	Scene       string
-	ShotSize    string
-	Camera      string
-	ImagePrompt string
-	Action      string
-	VideoPrompt string
-	Speaker     string
-	Dialogue    string
-	DurationMs  int64
-	Transition  string
+	DialogueMode string
+	Scene        string
+	ShotSize     string
+	Camera       string
+	ImagePrompt  string
+	Action       string
+	VideoPrompt  string
+	Speaker      string
+	Dialogue     string
+	DurationMs   int64
+	Transition   string
 }
 
 // SegmentReference 是段内出场的角色、道具或场景；Label 与提交时参考图的顺序一致（参考图1、参考图2…）。
@@ -300,10 +301,16 @@ func SegmentVideoPrompt(in SegmentPromptInput) string {
 		if motion := strings.TrimSpace(shot.VideoPrompt); motion != "" && motion != strings.TrimSpace(shot.Action) {
 			b.WriteString(motion + "\n")
 		}
-		if dialogue := strings.TrimSpace(shot.Dialogue); dialogue != "" {
+		if dialogue := strings.TrimSpace(shot.Dialogue); dialogue != "" && shot.DialogueMode != "silent" {
 			speaker := strings.TrimSpace(shot.Speaker)
 			if speaker == "" || IsNarrator(speaker) {
 				speaker = "旁白（画外音）"
+			}
+			switch shot.DialogueMode {
+			case "inner_monologue":
+				speaker += "（内心独白，画外音；人物不张嘴，不对口型）"
+			case "voice_over":
+				speaker += "（画外音；画面人物不张嘴，不对口型）"
 			}
 			fmt.Fprintf(&b, "%s：“%s”\n", speaker, dialogue)
 			rate := in.speechRateText()
@@ -315,6 +322,8 @@ func SegmentVideoPrompt(in SegmentPromptInput) string {
 			case rate != "":
 				fmt.Fprintf(&b, "台词%s。\n", rate)
 			}
+		} else if shot.DialogueMode == "silent" {
+			b.WriteString("本镜静音，不生成语音。\n")
 		} else {
 			b.WriteString("无台词。\n")
 		}

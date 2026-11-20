@@ -415,7 +415,7 @@ function SegmentReceipt({ segment }: { segment: DramaSegment }) {
                   label: "画面",
                   value: request.resolution ? `${request.aspectRatio}（按 ${request.resolution} 出片）` : request.size ? request.aspectRatio : `${request.aspectRatio}（所选模型给不出这个画幅）`,
               },
-              { tone: request.generateAudio ? "ok" : "warn", label: "声音", value: request.generateAudio ? "模型同步生成对白与音效" : "所选模型不出声，本段视频没有对白与音效" },
+              { tone: request.generateAudio ? "ok" : "warn", label: "声音能力", value: request.generateAudio ? "模型声明支持同步音频；对白质量需验收" : "模型未声明同步音频能力；实际音轨与人声需检查，可能需要后期配音" },
           ]
         : [];
     const rows: ReceiptRow[] = [

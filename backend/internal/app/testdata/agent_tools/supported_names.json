@@ -28,6 +28,7 @@
   "canvas_create_storyboard",
   "canvas_edit_storyboard",
   "canvas_create_character",
+  "canvas_bind_character_voice",
   "canvas_edit_batch_table",
   "canvas_apply_ops",
   "canvas_merge_text",

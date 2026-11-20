@@ -70,6 +70,35 @@ const config = normalizeConfigSnapshot({ config: { ...defaultConfig, channels: [
 useConfigStore.setState({ config });
 afterAll(() => dom.happyDOM.abort());
 
+test("角色声音绑定缺少审批预览时不能提交", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    let approvals = 0;
+    try {
+        await act(async () =>
+            root.render(
+                <ApprovalCard
+                    approval={{ approvalId: "voice-approval", detail: { toolName: "canvas_bind_character_voice", arguments: { characterNodeId: "character", audioNodeId: "audio" } }, reason: "" }}
+                    theme={canvasThemes.dark}
+                    submitting={false}
+                    onReasonChange={() => {}}
+                    onApprove={() => approvals++}
+                    onReject={() => {}}
+                />,
+            ),
+        );
+        const approve = [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.trim() === "同意执行");
+        expect(approve).toBeDefined();
+        expect(approve!.disabled).toBe(true);
+        await act(async () => approve!.click());
+        expect(approvals).toBe(0);
+    } finally {
+        await act(async () => root.unmount());
+        host.remove();
+    }
+});
+
 for (const toolName of ["generate_media", "generate_media_batch"])
     test(`真实图片审批卡片 ${toolName} 可切换模型与规格，提交值与界面一致`, async () => {
         const host = document.createElement("div");
@@ -105,7 +134,20 @@ for (const toolName of ["generate_media", "generate_media_batch"])
         const render = (submitting = false) =>
             root.render(
                 <ApprovalCard
-                    approval={{ approvalId: "image-approval", detail: { toolName, arguments: { ...initial, mode: "image", ...(toolName === "generate_media_batch" ? { items: [{ nodeId: "batch-row" }] } : {}) } }, reason: "" }}
+                    approval={{
+                        approvalId: "image-approval",
+                        detail: {
+                            toolName,
+                            arguments: { ...initial, mode: "image", ...(toolName === "generate_media_batch" ? { items: [{ nodeId: "batch-row" }] } : {}) },
+                            preview: {
+                                kind: "media_generation",
+                                title: "确认生成图片",
+                                description: "使用已选模型与规格生成图片。",
+                                items: [{ operation: toolName === "generate_media_batch" ? "generate_media_item" : "generate_media", nodeId: "batch-row", nodeTitle: "测试图片", nodeType: "image", nodeTypeLabel: "图片", summary: "生成测试图片" }],
+                            },
+                        },
+                        reason: "",
+                    }}
                     theme={canvasThemes.dark}
                     submitting={submitting}
                     onReasonChange={() => {}}

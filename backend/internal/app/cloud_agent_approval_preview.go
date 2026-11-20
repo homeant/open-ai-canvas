@@ -526,6 +526,14 @@ func cloudAgentMediaApprovalPreview(plan *cloudAgentMediaPlan, modelName string)
 	if args.ImageResolution != "" {
 		details = append(details, "分辨率："+truncateRunes(args.ImageResolution, 40))
 	}
+	if args.Mode == "audio" {
+		if args.Voice != "" {
+			details = append(details, "音色："+truncateRunes(args.Voice, 160))
+		}
+		if args.VoiceInstruction != "" {
+			details = append(details, "声音指令："+truncateRunes(args.VoiceInstruction, 120))
+		}
+	}
 	if args.ConfigurationChange != nil {
 		details = append(details, "规格变更依据："+truncateRunes(args.ConfigurationChange.UserInstruction, 200))
 	}

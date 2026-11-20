@@ -5,6 +5,23 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## 画布提交前校验与等待恢复
+
+- 实际提交：`web/src/pages/canvas/use-canvas-generation-executor.ts`；尝试归属与准备终态：`web/src/lib/canvas/canvas-task-state.ts`。校验失败持久化为可重试错误，取消准备回到空闲。
+- 历史无绑定等待的结束和确认后重试：`use-canvas-generation-retry.ts`；实际节点状态与入口：`components/canvas/canvas-node-status-content.tsx`。结束本地等待不代表后台任务已取消。
+
+## 预演台逐帧取样与动作诊断
+
+- 外部 MCP 入口：`handler/external_mcp.go`；只读取样：`app/external_previs_samples.go`；资源校验与真实浏览器边界：`app/external_previs_headless.go`。画幅默认值、补丁字段拒绝与根旋转风险在 `app/previs_validation.go`。
+- 实际画面入口：`web/src/previs-render.tsx`；包围盒与接触诊断：`web/src/lib/canvas/previs/previs-frame-diagnostics.ts`；姿态插值在 `previs-shot-state.ts`、`previs-motion.ts` 与 `components/canvas/previs/previs-viewport-rig.ts`。
+- 逐镜骨骼与约束语义：`app/previs_rig_patch.go`，读回与镜头隔离在 `app/previs_shot_state.go`。标准人偶标记与 CCD 求解在 `previs-mannequin.ts`、`previs-contact-constraints.ts`；截图先求值所有对象再求解接触，避免支撑物时刻不同步。当前不提供关节限位、全身平衡或精确碰撞结论。
+
+## 短剧 MCP 原子精修
+
+- 外部工具：`handler/external_mcp_drama_editing.go`；业务编排：`app/drama_mcp_editing.go`、`drama_mcp_prompts.go`、`drama_mcp_preflight.go`、`drama_mcp_compose.go`。事务与回执：`repository/drama_mutation.go`、`model/models_drama_mutation.go`，迁移 Schema 109。
+- 镜头场景／角色／道具绑定与段级图片覆盖在 `app/drama_mcp_references.go`；`drama_mcp_preflight.go` 明确区分镜头绑定、实际送图和仅文字设定。
+- 候选稿与视频快照继续走实际调度：`app/drama_orchestrator.go`、`drama_segment_video.go`；结构化独白进入 `production/segment_prompt.go` 和 `segment_writer.go`。媒体流实测复用 `app/media_probe.go`，网页声音说明在 `pages/projects/studio/segment-dialog.tsx`。
+
 ## 图片用量计费
 
 - 规则与计算：`model/image_billing.go`、`imagebilling/pricing.go`；价格校验、换算和报价在 `app/channel_models_pricing.go`、`app/image_billing.go`、`app/finance.go`、`app/logical_model_quote.go`。

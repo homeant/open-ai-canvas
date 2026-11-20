@@ -50,6 +50,7 @@ export default defineConfig({
     },
     build: {
         rolldownOptions: {
+            input: { main: resolve(webDir, "index.html"), previsRender: resolve(webDir, "previs-render.html") },
             output: {
                 strictExecutionOrder: true,
                 codeSplitting: {

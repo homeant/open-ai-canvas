@@ -1,5 +1,6 @@
 import { translate } from "@/i18n";
 import { hasSkillLibraryAccess } from "@/lib/skill-access";
+import { canvasNodeHasUnboundRecovery, endUnboundCanvasWaiting, UNBOUND_CANVAS_SUBMISSION } from "@/lib/canvas/canvas-task-state";
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 
@@ -86,12 +87,29 @@ export function useCanvasGenerationRetry({
     bindGenerationTask,
     applyGenerationTaskResult,
 }: UseCanvasGenerationRetryOptions) {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
 
     return useCallback(
         async (node: CanvasNodeData) => {
+            if (canvasNodeHasUnboundRecovery(node)) {
+                setNodes((current) => current.map((item) => (item.id === node.id ? endUnboundCanvasWaiting(item) : item)));
+                return;
+            }
+            if (node.metadata?.generationErrorCode === UNBOUND_CANVAS_SUBMISSION) {
+                const confirmed = await new Promise<boolean>((resolve) =>
+                    modal.confirm({
+                        title: "核对后重新提交？",
+                        content: "未能确认先前请求是否进入后台。请先检查创作历史；本次将创建新任务，可能重复计费。",
+                        okText: "已核对，重新提交",
+                        cancelText: "返回核对",
+                        onOk: () => resolve(true),
+                        onCancel: () => resolve(false),
+                    }),
+                );
+                if (!confirmed) return;
+            }
             if (node.metadata?.experimentalLayerPlan) {
                 const complete = node.metadata.experimentalLayerPlan.requests.every((request) => {
                     const child = nodesRef.current.find((item) => item.id === request.nodeId);
@@ -699,7 +717,24 @@ export function useCanvasGenerationRetry({
                 setRunningNodeId(null);
             }
         },
-        [addedSkills, applyGenerationTaskResult, assets, bindGenerationTask, connectionsRef, domainProjectId, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, nodesRef, projectId, setNodes, setRunningNodeId, startGenerationRequest],
+        [
+            addedSkills,
+            applyGenerationTaskResult,
+            assets,
+            bindGenerationTask,
+            connectionsRef,
+            domainProjectId,
+            effectiveConfig,
+            finishGenerationRequest,
+            isAiConfigReady,
+            message,
+            modal,
+            nodesRef,
+            projectId,
+            setNodes,
+            setRunningNodeId,
+            startGenerationRequest,
+        ],
     );
 }
 

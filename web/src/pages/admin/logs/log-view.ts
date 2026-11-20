@@ -6,9 +6,11 @@ export function normalizeLogView(value: string | null): LogView {
     return value === "billing" || value === "all" ? value : "troubleshoot";
 }
 
-export function logStatus(log: Pick<ApiCallLog, "status" | "providerStatus">) {
+export function logStatus(log: Pick<ApiCallLog, "status" | "providerStatus" | "taskStatus">) {
     const providerStatus = log.providerStatus?.toLowerCase();
     if (log.status === "failed" || ["failed", "cancelled", "canceled", "expired"].includes(providerStatus || "")) return { label: "失败", tone: "error" as const };
+    // Older async logs kept the create response's processing state after the task succeeded.
+    if (log.taskStatus === "succeeded") return { label: "成功", tone: "success" as const };
     if (["queued", "pending", "processing", "running", "in_progress"].includes(providerStatus || "")) return { label: "处理中", tone: "warning" as const };
     return { label: "成功", tone: "success" as const };
 }

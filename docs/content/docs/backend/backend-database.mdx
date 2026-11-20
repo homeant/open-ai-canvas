@@ -5,9 +5,39 @@ description: 影策后端核心持久化表与状态边界
 
 # 后端数据库
 
-## 外部 MCP 授权与 API Key（Schema 106）
+## 镜头实体图片与视觉验收（Schema 112）
 
-版本 106 新增 `user_api_keys`、`mcp_clients`、`mcp_authorization_codes`，并给 `tasks` 与 `projects` 增加外部幂等标识。旧版本后端不能连接升级后的数据库。
+`drama_shots.image_references_json` 保存单镜明确图片资源、用途及可选画布节点指纹；空字段不进入内容指纹，既有未绑定镜头不被重新标旧。写入锁定自有资源行，与删除校验串行；素材删除及孤儿清理读取这些 JSON 引用。
+
+`drama_takes` 新增可选 `episode_id`，用于新登记的 `shot_media` 候选定位和剧集删除，不回填既有历史。候选 `generation_json` 保存源裁切窗、媒体种类和计划时长，只登记、不自动采用或物理裁剪。
+
+`drama_shot_media_reviews` 按具体 take、镜头和检查层追加人工画面／文字／物理连续性观察，保存源时间窗、镜头指纹、认证检查人、状态与原因。剧集／作品删除清理对应检查与独立候选；SQLite → PostgreSQL 复制清单同步登记该表。详见 [镜头图片与视觉版本 QA](/docs/backend/drama-shot-media-mcp)。
+
+## 短剧后期音轨版本
+
+Schema 110 新增 `drama_audio_versions` 和 `drama_audio_resource_links`。音轨版本按 `segment_id + revision` 唯一、只追加，保存分镜指纹、绑定的视频 take/资源、创建人及音频片段 JSON。每个片段记录稳定 ID、镜头、对白模式、文本／音效说明、声源、段内起止毫秒、音频源裁切起点、受管模型与音色、实际任务和已绑定资源。
+
+资源链接表按 `version_id + resource_id` 唯一，保护所有历史版本引用的视频与音频，素材删除及孤儿清理均检查；附加与删除共享资源行锁。作品／剧集删除同步清理音轨与链接。重新改编后旧音轨保留在旧段 ID 下，不会自动迁到新镜头或变成已验收。
+
+写入复用剧集事务与幂等回执。TTS 准入、费用预留和新音轨版本同事务提交，重复请求不会创建第二个任务；并按作品锁检查剩余预算。计划不修改 `drama_segments.video_resource_id`，不覆盖正式视频。
+
+Schema 111 新增 `drama_audio_checks`，只追加保存明确音轨版本、片段、检查层、状态、方法、认证检查人、实际资源和完整文件 SHA-256，以及转写／时间对齐或人工观察证据 JSON。ASR、内容、画面、人物声源、嘴部、音效和最终验收独立记录。最终验收绑定当时检查 ID 集合，后续新证据使旧最终结论失效；分镜变化和新音轨不继承验收。作品／剧集删除同步清理检查。SQLite → PostgreSQL 复制清单同步登记。详见 [后期音轨与验收](/docs/backend/drama-audio-mcp)。
+
+## 短剧 MCP 编辑事务（Schema 109）
+
+版本 109 新增 `drama_mutation_receipts`：保存作品／剧集归属、账号与命令作用域的幂等键哈希、请求哈希、原响应 JSON 和创建时间；不保存原始幂等键。回执与原文、整批镜头或提示词写入在同一事务提交，删除剧集／作品时清理回执。SQLite → PostgreSQL 迁移清单同步登记该表。
+
+`drama_shots.dialogue_mode` 保存 `dialogue/inner_monologue/voice_over/silent` 语义，旧空值按普通对白处理。`drama_segments` 新增 `candidate_id/candidate_shot_revision`、`prompt_shot_revision/prompt_revision`、`require_prompt_adoption` 和可选 `prompt_model_json`，分别关联待采用稿、已核对稿、显式采用关口及重写文本模型。`drama_takes` 新增 `shot_revision/prompt_revision/generation_json`，保存视频生成时的分镜内容版本、提示词版本及实际请求参数；历史缺值保持未知，不做无法证明的回填。
+
+原文和分镜内容版本是按有序内容计算的 SHA-256，不占用既有段／集整数 `revision`，也不依赖网页写路径额外递增。详见 [短剧 MCP 剧本与分镜编辑](/docs/backend/drama-mcp-editing)。
+
+## 短剧段提示词人工修订（Schema 108）
+
+版本 108 新增 `drama_segment_prompt_revisions`，以 `(segment_id, revision)` 唯一标识一次人工提示词保存，记录作品 ID、完整提示词和创建时间。迁移把已有 `drama_segments.video_prompt_override` 作为当前人工修订补录；此后每次不同的手工改写在段状态失效的同一事务内追加历史。模型生成稿继续保存在 `drama_segments.video_prompt`，视频产物版本继续保存在 `drama_takes`；编辑提示词不会覆盖两者或创建任务。删除一集时同步清理本集的提示词历史。
+
+## 外部 MCP 授权与 API Key（Schema 106–107）
+
+版本 106 新增 `user_api_keys`、`mcp_clients`、`mcp_authorization_codes`，并给 `tasks` 增加外部幂等标识。版本 107 为已执行原本地迁移但缺少 `projects.external_request_hash` 的数据库补齐该列，保留既有项目；新库仍由版本 106 创建该列。旧版本后端不能连接升级后的数据库。
 
 | 表或字段 | 合同 |
 | --- | --- |
@@ -398,6 +428,7 @@ SQLite 写事务与 PostgreSQL 行锁串行化同一对话的修订检查；读�
 | `drama_episodes` | 集标题、大纲、钩子、悬念、素材类型 `source_format`（Schema 73）、阶段（queued → script → prompts → review → video → render → done）、`approved`（逐集确认模式下已确认本集提示词）、`media_released`、错误、成片资源、`final_stale`、`revision` | `(project_id, number)` 唯一；用户修改递增 `revision`，调度写入以 `revision` 为条件 |
 | `drama_shots` | 镜头脚本：剧情段 `segment_index` / `segment_title`、场景与场景设定 `scene_cast_id`、出场角色 `cast_ids_json`、关键道具 `prop_ids_json`、说话人、台词、动作、景别、运镜、转场 `transition`、时长、起幅画面 `image_prompt`、运动描述 `video_prompt`、原文出处 | 镜头只是撰写段提示词的素材，不产出媒体；修改后所在段的提示词与视频标记过期 |
 | `drama_segments` | 剧情段：模型撰写的完整视频提示词 `video_prompt`、撰写状态 `prompt_status`（空串待撰写、`running`、`ready`、`stale`、`conflict`、`review`、`failed`）与 `prompt_error`、撰写时的秒数 `prompt_seconds`、用户改写 `video_prompt_override`、按段视频模型 `video_model_json`、用户指定的参考图 `reference_cast_ids_json`（Schema 74）、视频状态 `video_status`、`video_resource_id`、`video_seconds`、`video_error`、本段视频最后一帧 `tail_frame_resource_id`、`revision` | `(episode_id, segment_index)` 唯一；剧本写入时建行，重新改编时重建；结果按 `revision` 条件写入，过期结果作废；某段视频变化会让后续已生成的段过期（它们承接的是旧最后一帧） |
+| `drama_segment_prompt_revisions` | 剧情段人工提示词历史：作品 ID、段 ID、保存时的修订号、完整提示词和创建时间 | `(segment_id, revision)` 唯一；随剧情段删除，SQLite→PostgreSQL 数据迁移包含本表 |
 | `drama_takes` | 历史版本：设定参考图（`cast`）、剧情段视频（`video`，`owner_id` 为段 ID）与单集成片（`final`） | `(owner_id, kind)` 内递增 `version`；版本始终入库 |
 | `drama_jobs` | 调度队列：类型（bible/plan/cast_image/script/segment_prompt/segment_video/render）、目标、优先级、关联任务、重试次数、历次提交 `attempts_json`、错误、实际花费 | 任务在派发时才创建；`segment_prompt` / `segment_video` 的 `shot_id` 存放 `drama_segments.id` |
 

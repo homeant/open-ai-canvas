@@ -14,6 +14,7 @@ import { resolveCanvasConnectionTarget, type CanvasConnectionDropTarget as Conne
 import { CANVAS_WHEEL_POPUP_SELECTOR } from "@/lib/canvas/canvas-wheel-intent";
 import { audioModelForConnectionInput } from "@/lib/model-selection";
 import { attachNodeToStoryboardRow, createCanvasNode, normalizeConnection, storyboardPromptTemplateMetadata, storyboardRowFromHandle, storyboardRowVideoPrompt } from "@/lib/canvas/canvas-project-domain";
+import { findCanvasInsertionPosition } from "@/lib/canvas/canvas-smart-layout";
 import { canvasImageNodeDimensions } from "@/lib/canvas/canvas-reference-image-size";
 import { imageNodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { createCanvasDrawingFromImage } from "@/lib/canvas/canvas-drawing-storage";
@@ -336,6 +337,7 @@ export function useCanvasConnectionController({
         }
         if (nodeType === CanvasNodeType.Config && selectedWorkflowProvider) newNode.title = translate("canvasPage.connection.runningHubWorkflow");
         if (storyboardRow) newNode.title = translate("canvasPage.storyboard.shotVideoTitle", { shot: storyboardRow.shotNumber });
+        newNode.position = findCanvasInsertionPosition(nodesRef.current, newNode.position, newNode);
         if (batchSourceNodeIds.length && nodeType === CanvasNodeType.Drawing) {
             message.error(translate("canvasPage.connection.batchNoDrawing"));
             closeConnectionCreateMenu();

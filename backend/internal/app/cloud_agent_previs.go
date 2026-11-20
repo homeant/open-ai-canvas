@@ -13,6 +13,7 @@ import (
 func cloudAgentPrevisSceneRead(repo *repository.Repository, userID, canvasID string, call cloudAgentCall) (any, error) {
 	var args struct {
 		SceneID           string   `json:"sceneId"`
+		EpisodeID         string   `json:"episodeId,omitempty"`
 		ShotID            string   `json:"shotId"`
 		ObjectIDs         []string `json:"objectIds"`
 		IncludeTransforms bool     `json:"includeTransforms"` // Return exact position/rotation/fov for spatial planning
@@ -75,6 +76,11 @@ func cloudAgentPrevisSceneRead(repo *repository.Repository, userID, canvasID str
 	if !ok {
 		return nil, BadAuthRequest("导演场景不存在或不属于当前画布")
 	}
+	if args.EpisodeID != "" {
+		if bound := stringValue(scene["episodeId"]); bound != "" && bound != args.EpisodeID {
+			return nil, Forbidden("预演场景属于其他剧集")
+		}
+	}
 	if args.ShotID != "" {
 		if _, ok := findPrevisShot(scene, args.ShotID); !ok {
 			return nil, BadAuthRequest("导演镜头不存在或不属于指定场景")
@@ -84,20 +90,37 @@ func cloudAgentPrevisSceneRead(repo *repository.Repository, userID, canvasID str
 	for _, id := range args.ObjectIDs {
 		objectIDs[id] = true
 	}
-	projection := projectPrevisScene(scene, args.ShotID, objectIDs)
+	selectedScene := previsSceneForShot(scene, args.ShotID)
+	projection := projectPrevisScene(selectedScene, args.ShotID, objectIDs)
+	if args.ShotID != "" {
+		shot, _ := findPrevisShot(scene, args.ShotID)
+		projection["shotFrames"] = previsShotFrames(scene, shot, objectIDs)
+		projection["animationScope"] = "shot.objectStates 覆盖场景对象；补丁的 shotId 指定独立镜头，省略则修改场景全局。首末状态不包含骨骼蒙皮结果，实际画面请 render_previs_frame。"
+	}
 	if args.IncludeTransforms {
 		// Augment with full spatial data for layout planning: object positions, camera transforms, FOV
-		projection["spatialLayout"] = cloudAgentPrevisSpatialLayout(scene)
+		projection["spatialLayout"] = cloudAgentPrevisSpatialLayout(selectedScene)
 		projection["coordinateGuide"] = "坐标系: Y轴向上，单位为米，地面Y=0。人物高约1.8m。position=[X,Y,Z]，rotation=[绕X,绕Y,绕Z弧度]。演员原点在脚底，Y=脚底离地高度：站上桌面/台阶/屋顶时设为台面高度，低于0会被拉回地面；box/sphere/cylinder原点在中心。target是摄影机焦点坐标。"
 	}
 	return map[string]any{
 		"canvasId":           canvasID,
+		"nodeId":             cloudAgentPrevisBoundNodeID(creationMaps(doc["nodes"]), args.SceneID),
 		"scene":              projection,
 		"snapshotHash":       creationHash(scene),
 		"canvasSnapshotHash": cloudAgentCanvasHash(doc),
 		"revision":           canvas.Revision,
 		"guidance":           "安全摘要。修改用 previs_apply_patch；预演用 previs_preview；布局规划用 includeTransforms=true 获取精确坐标。snapshotHash 只代表该场景。",
 	}, nil
+}
+
+func cloudAgentPrevisBoundNodeID(nodes []map[string]any, sceneID string) string {
+	for _, node := range nodes {
+		metadata, _ := node["metadata"].(map[string]any)
+		if stringValue(metadata["previsSceneId"]) == sceneID {
+			return stringValue(node["id"])
+		}
+	}
+	return ""
 }
 
 // previsMapSafe safely casts a value to map[string]any, returning an empty map on failure.
@@ -186,11 +209,12 @@ func cloudAgentPrevisSpatialLayout(scene map[string]any) map[string]any {
 
 func cloudAgentPrevisPreview(repo *repository.Repository, userID, canvasID string, call cloudAgentCall) (any, error) {
 	var args struct {
-		SceneID  string   `json:"sceneId"`
-		ShotID   string   `json:"shotId"`
-		Duration *float64 `json:"duration"`
-		FPS      *int     `json:"fps"`
-		Output   string   `json:"output"`
+		SceneID   string   `json:"sceneId"`
+		EpisodeID string   `json:"episodeId,omitempty"`
+		ShotID    string   `json:"shotId"`
+		Duration  *float64 `json:"duration"`
+		FPS       *int     `json:"fps"`
+		Output    string   `json:"output"`
 	}
 	if err := decodeCloudAgentJSONObject(call.Function.Arguments, &args); err != nil {
 		return nil, cloudAgentJSONArgumentError(err)
@@ -221,6 +245,11 @@ func cloudAgentPrevisPreview(repo *repository.Repository, userID, canvasID strin
 	scene, ok := findPrevisScene(creationMaps(doc["previsScenes"]), args.SceneID)
 	if !ok {
 		return nil, BadAuthRequest("导演场景不存在或不属于当前画布")
+	}
+	if args.EpisodeID != "" {
+		if bound := stringValue(scene["episodeId"]); bound != "" && bound != args.EpisodeID {
+			return nil, Forbidden("预演场景属于其他剧集")
+		}
 	}
 	shot, ok := findPrevisShot(scene, args.ShotID)
 	if !ok {
@@ -279,13 +308,19 @@ func projectPrevisScene(scene map[string]any, shotID string, objectIDs map[strin
 			continue
 		}
 		shots = append(shots, map[string]any{
-			"id":         stringValue(shot["id"]),
-			"name":       truncateRunes(stringValue(shot["name"]), 160),
-			"cameraId":   stringValue(shot["cameraId"]),
-			"duration":   numberValue(shot["duration"], 5),
-			"fps":        int(numberValue(shot["fps"], 24)),
-			"shotSize":   stringValue(shot["shotSize"]),
-			"cameraMove": stringValue(shot["cameraMove"]),
+			"id":                   stringValue(shot["id"]),
+			"name":                 truncateRunes(stringValue(shot["name"]), 160),
+			"cameraId":             stringValue(shot["cameraId"]),
+			"duration":             numberValue(shot["duration"], 5),
+			"fps":                  int(numberValue(shot["fps"], 24)),
+			"shotSize":             stringValue(shot["shotSize"]),
+			"cameraMove":           stringValue(shot["cameraMove"]),
+			"dramaShotId":          stringValue(shot["dramaShotId"]),
+			"aspectRatio":          previsEffectiveAspectRatio(shot),
+			"aspectRatioDefaulted": stringValue(shot["aspectRatio"]) == "",
+			"objectStates":         creationMaps(shot["objectStates"]),
+			"renderResourceId":     stringValue(shot["renderResourceId"]),
+			"renderKind":           stringValue(shot["renderKind"]),
 		})
 	}
 	objects := make([]map[string]any, 0)
@@ -295,14 +330,17 @@ func projectPrevisScene(scene map[string]any, shotID string, objectIDs map[strin
 			continue
 		}
 		objects = append(objects, map[string]any{
-			"id":        id,
-			"name":      truncateRunes(stringValue(object["name"]), 160),
-			"kind":      stringValue(object["kind"]),
-			"primitive": stringValue(object["primitive"]),
-			"color":     stringValue(object["color"]),
-			"pose":      stringValue(object["pose"]),
-			"visible":   boolValue(object["visible"], true),
-			"transform": projectPrevisTransform(object["transform"]),
+			"id":            id,
+			"name":          truncateRunes(stringValue(object["name"]), 160),
+			"kind":          stringValue(object["kind"]),
+			"resourceId":    stringValue(object["resourceId"]),
+			"gltfNodeIndex": object["gltfNodeIndex"],
+			"dramaCastId":   stringValue(object["dramaCastId"]),
+			"primitive":     stringValue(object["primitive"]),
+			"color":         stringValue(object["color"]),
+			"pose":          stringValue(object["pose"]),
+			"visible":       boolValue(object["visible"], true),
+			"transform":     projectPrevisTransform(object["transform"]),
 		})
 	}
 	cameras := make([]map[string]any, 0)

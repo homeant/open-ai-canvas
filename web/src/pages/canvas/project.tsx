@@ -401,7 +401,7 @@ function CanvasViewportPage() {
         [backgroundMode, message],
     );
 
-    const { getHistoryCleanupContext, historyPausedRef, historyState, redoCanvas, resetHistory, undoCanvas } = useCanvasHistory({
+    const { commitNodeArrangement, getHistoryCleanupContext, historyPausedRef, historyState, redoCanvas, resetHistory, undoCanvas } = useCanvasHistory({
         projectLoaded,
         nodes,
         connections,
@@ -694,6 +694,7 @@ function CanvasViewportPage() {
     const {
         fitCanvasContent,
         fitCanvasSelection,
+        focusNodesInView,
         focusCanvasImageNode,
         focusCanvasNode,
         getCanvasCenter,
@@ -1054,6 +1055,9 @@ function CanvasViewportPage() {
         connectionsRef,
         selectedNodeIdsRef,
         getCanvasCenter,
+        commitNodeArrangement,
+        onArrangementFocus: focusNodesInView,
+        onUndoArrangement: undoCanvas,
         setNodes,
         setConnections,
         setSelectedNodeIds,
@@ -3393,6 +3397,7 @@ function CanvasViewportPage() {
                                         onScaleChange={setZoomScale}
                                         onFitContent={fitCanvasContent}
                                         onAutoArrange={autoArrangeCanvasNodes}
+                                        selectedCount={selectedNodeIds.size}
                                         hideNodeConnections={hideNodeConnections}
                                         onHideNodeConnectionsChange={setHideNodeConnections}
                                         isMiniMapOpen={isMiniMapOpen}
@@ -3447,6 +3452,7 @@ function CanvasViewportPage() {
                                 onSetAssetCategory={(nodeId, assetCategory) => handleConfigNodeChange(nodeId, { assetCategory })}
                                 onToggleFrame={(node) => handleFrameToggle(node.id)}
                                 onSpreadSelection={spreadSelectedNodes}
+                                onArrange={autoArrangeCanvasNodes}
                                 onCopySelection={copySelectedNodes}
                                 onDeleteSelection={() => deleteNodes(selectedNodeIds)}
                                 onSendToAgent={() => sendSelectionToAgent(contextMenu?.type === "node" && selectedNodeIds.size <= 1 ? contextMenu.nodeId : undefined)}

@@ -98,6 +98,13 @@ func cloudAgentMediaOptions(a cloudAgentMediaArgs) contract.Options {
 		if a.Quality != "" {
 			options.Quality = &a.Quality
 		}
+	} else if a.Mode == "audio" {
+		if a.Voice != "" {
+			options.AudioVoice = &a.Voice
+		}
+		if a.VoiceInstruction != "" {
+			options.AudioInstructions = &a.VoiceInstruction
+		}
 	}
 	if a.Mode == "audio" && strings.TrimSpace(a.AudioMode) != "" {
 		options.AudioMode = &a.AudioMode
