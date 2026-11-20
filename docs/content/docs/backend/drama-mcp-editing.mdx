@@ -31,6 +31,34 @@ description: 原文、原子镜头编辑、提示词候选采用、生成预检�
 
 以上参数调用 `update_episode_source`。省略 `readapt` 同样只保存原文，回执 `action=saved_source_only`、`shotsPreserved=true`；分镜、提示词、视频均保留。明确传 `readapt=true` 才清空原分镜并排队重新改编，回执 `saved_and_readapt_queued`，调用前应取得制作用户的指令。
 
+## 分镜时窗与只读节奏预检
+
+`get_episode_timing({dramaId, episodeId})` 返回按稳定 `shotId` 排列的全部分镜、`episodeStartMs/episodeEndMs`、`segmentStartMs/segmentEndMs`、作品语速估算的对白窗和口型要求。`episodeRecordRevision` 是集记录整数，`episodeRevision` 是分镜内容指纹，`timingRevision` 还包含段、音轨、检查和设置状态。时间单位均为毫秒，窗口来自剧本和保存的音轨计划，不是成片的实测剪辑时间或 ASR。
+
+`audioVersions` 保留各段最新不可变音轨版本与 cue；`audioInspection` 返回各版本最新检查的 `layer/status/method/result`。缺失检查为 `unverified`，旧检查的 `unknown` 不会被 TTS 成功、AAC 存在或估算对白窗覆盖。`asrServiceConfigured` 仅说明配置存在，`asrAvailability=not_probed`；可听审、说话人和口型须另行检查。
+
+`preview_episode_timing_edits` 仅接受 `dryRun=true`，不进入保存、幂等回执、生成、绑定或账务路径：
+
+```json
+{
+  "dramaId": "test-drama",
+  "episodeId": "test-episode",
+  "expectedEpisodeRevision": "从 get_episode_timing 原样取得",
+  "expectedTimingRevision": "从 get_episode_timing 原样取得",
+  "dryRun": true,
+  "edits": [
+    { "operation": "retime", "shotId": "shot-a", "durationMs": 3000 },
+    { "operation": "merge_next", "shotId": "shot-a", "nextShotId": "shot-b" }
+  ]
+}
+```
+
+每批 1–100 项，按顺序预演。时长必须明确为 1000–60000ms。`merge_next` 必须指定当前列表中的下一镜，支持跨段；保留首镜 ID 和所属段，合计时长、逐字保留原句，并返回 `sourceShotIds`。可用 `durationMs` 明确合并后的时长。跨场景、不同说话人／对白模式、超过单镜字段限制的合并拒绝，不把多角色对白伪装成单人表演；连续表演的机位、提示词和参考图仍需人工整理。
+
+结果包含 `before/after`、直接受改动段、按并行／尾帧依赖计算的全部 `affectedSegmentIndexes`、音轨版本复核清单、对白溢出／音轨移位／旧音轨已失效等问题和逐段报价预览。跨段合并可能令保留段超过模型上限或原段为空；预检会指出问题，不自动重新分段或重生成。报价复用实际模型请求准备与计价合同；无法可靠报价时总额为 `null`、`estimateComplete=false`，不能当作零费用。报价不是收费授权。
+
+`applied/generationSubmitted/canApply` 始终为 `false`，历史音视频、审核与正式集不变。当前没有把该预演直接应用为正式分镜的接口；确认具体方案后仍需明确的正式编辑与对应版本校验。
+
 ## 原子编辑镜头
 
 `edit_episode_shots` 接收 `expectedEpisodeRevision`、`idempotencyKey` 与 1–100 项 `edits`。使用稳定 `shotId`，不使用显示镜号；操作按数组顺序执行，最后统一检查各段时长与镜头数量。一段不可删空，插镜沿用锚点所在段、场景和角色，不重新分段。

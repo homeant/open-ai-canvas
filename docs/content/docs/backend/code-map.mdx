@@ -20,6 +20,7 @@ description: 从产品功能快速定位主要代码入口
 
 - 外部工具：`handler/external_mcp_drama_editing.go`；业务编排：`app/drama_mcp_editing.go`、`drama_mcp_prompts.go`、`drama_mcp_preflight.go`、`drama_mcp_compose.go`。事务与回执：`repository/drama_mutation.go`、`model/models_drama_mutation.go`，迁移 Schema 113。
 - 镜头场景／角色／道具绑定与段级图片覆盖在 `app/drama_mcp_references.go`；`drama_mcp_preflight.go` 明确区分镜头绑定、实际送图和仅文字设定。
+- 全集分镜／对白／音轨时窗与节奏 dryRun：`handler/external_mcp_drama_timing.go`、`app/drama_timing.go`、`drama_timing_preview.go`；`repository/drama_timing.go` 在一致的只读快照内读取分镜、段和音轨检查，不写修改回执或任务。
 - 候选稿与视频快照继续走实际调度：`app/drama_orchestrator.go`、`drama_segment_video.go`；结构化独白进入 `production/segment_prompt.go` 和 `segment_writer.go`。媒体流实测复用 `app/media_probe.go`，网页声音说明在 `pages/projects/studio/segment-dialog.tsx`。
 
 ## 团队空间
