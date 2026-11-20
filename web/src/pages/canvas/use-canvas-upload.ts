@@ -11,6 +11,7 @@ import { getActiveUserScope } from "@/lib/user-scope";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
+import { placeCanvasIncomingNodes } from "@/lib/canvas/canvas-smart-layout";
 import { isAudioFile } from "@/lib/canvas/canvas-project-generation";
 import { fitImageNodeSize, fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
 import { CANVAS_UPLOAD_ACCEPT, createFileUploadPlaceholder, uploadNodeType, uploadPercent } from "@/lib/canvas/canvas-file-upload";
@@ -193,7 +194,7 @@ export function useCanvasUpload({ canvasId, domainProjectId, nodesRef, selectedN
                                     }
                                   : item,
                           )
-                        : [...current, placeholder],
+                        : [...current, ...placeCanvasIncomingNodes(current, [placeholder])],
                 );
                 if (!silent) selectInsertedNode(id, "close");
                 let lastPercent: number | undefined;
@@ -359,7 +360,7 @@ export function useCanvasUpload({ canvasId, domainProjectId, nodesRef, selectedN
                         originalFileName: typeof asset.metadata?.originalFileName === "string" ? asset.metadata.originalFileName : undefined,
                     },
                 };
-                setNodes((current) => [...current, node]);
+                setNodes((current) => [...current, ...placeCanvasIncomingNodes(current, [node])]);
                 if (!options.quiet) selectInsertedNode(id, "close");
                 return id;
             } catch (error) {
@@ -378,7 +379,7 @@ export function useCanvasUpload({ canvasId, domainProjectId, nodesRef, selectedN
                 ...createCanvasNode(CanvasNodeType.Text, position || getCanvasCenter(), { content: trimmed, status: NODE_STATUS_SUCCESS }),
                 title: trimmed.slice(0, 32) || translate("canvasPage.upload.clipboardText"),
             };
-            setNodes((current) => [...current, node]);
+            setNodes((current) => [...current, ...placeCanvasIncomingNodes(current, [node])]);
             selectInsertedNode(node.id, "open");
             setContextMenu(null);
             return true;
@@ -412,7 +413,7 @@ export function useCanvasUpload({ canvasId, domainProjectId, nodesRef, selectedN
             node.title = translate("canvasPage.upload.chapterTitle", { title: chapter.title });
             node.width = 460;
             node.height = 280;
-            setNodes((current) => [...current, node]);
+            setNodes((current) => [...current, ...placeCanvasIncomingNodes(current, [node])]);
             selectInsertedNode(node.id, "preserve");
             setContextMenu(null);
             message.success(translate("canvasPage.upload.chapterAdded", { title: chapter.title }));
@@ -847,7 +848,7 @@ export function useCanvasUpload({ canvasId, domainProjectId, nodesRef, selectedN
                     ),
                 );
                 if (!session.active || scope !== getActiveUserScope()) return [];
-                setNodes((current) => [...current, ...created]);
+                setNodes((current) => [...current, ...placeCanvasIncomingNodes(current, created)]);
                 setSelectedNodeIds(new Set(created.map((node) => node.id)));
                 setSelectedConnectionId(null);
                 setDialogNodeId(null);

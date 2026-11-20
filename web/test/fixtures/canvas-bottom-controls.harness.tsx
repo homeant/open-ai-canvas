@@ -333,7 +333,7 @@ test("真实视图控制保留缩放、快速比例、连线、小地图及快�
         await click("设置隐藏节点连线");
         expect(host.querySelector('[aria-label="显示全部连线"]')?.getAttribute("aria-pressed")).toBe("true");
         await click("适应画布");
-        await click("自动整理节点");
+        await click("智能整理");
         await click("画布快捷键");
         expect(calls).toEqual(["fit", "arrange", "shortcuts"]);
     } finally {

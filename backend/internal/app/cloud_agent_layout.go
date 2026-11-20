@@ -83,7 +83,7 @@ func cloudAgentLayoutNodes(doc map[string]any) []layout.Node {
 			continue
 		}
 		lane, supported := cloudAgentLayoutLane(stringValue(node["type"]))
-		item := layout.Node{ID: id, Type: stringValue(node["type"]), Lane: lane, NoMove: !supported}
+		item := layout.Node{ID: id, CreatedAt: stringValue(node["createdAt"]), Type: stringValue(node["type"]), Lane: lane, NoMove: !supported}
 		if position, ok := node["position"].(map[string]any); ok {
 			if value, ok := cloudAgentSafeNumber(position["x"]); ok {
 				item.X, _ = value.(float64)
@@ -326,7 +326,20 @@ func cloudAgentArrangePositions(doc map[string]any, args cloudAgentArrangeArgs, 
 	} else {
 		switch mode {
 		case layout.ModeAuto:
-			positions = layout.Auto(selected, edges)
+			fixed := make([]layout.Node, 0)
+			documentNodes := cloudAgentLayoutNodesByID(doc)
+			for _, node := range cloudAgentLayoutNodes(doc) {
+				if _, moving := index[node.ID]; moving {
+					continue
+				}
+				raw := documentNodes[node.ID]
+				meta, _ := raw["metadata"].(map[string]any)
+				if stringValue(raw["parentId"]) != "" || stringValue(meta["batchRootId"]) != "" {
+					continue
+				}
+				fixed = append(fixed, node)
+			}
+			positions = layout.GraphWithObstacles(selected, edges, fixed)
 		case layout.ModeFlow:
 			positions = layout.Flow(selected, edges)
 		case layout.ModeByLane:

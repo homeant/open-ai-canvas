@@ -278,7 +278,8 @@ Pi SDK 执行前的参数校验失败由 `agent-runtime/pi/agent-runtime.mjs` �
 | 分镜脚本节点 | `web/src/components/canvas/canvas-script-node.tsx` |
 | 3D 导演台 | `web/src/components/canvas/director/` |
 | 节点生成上下文 | `web/src/components/canvas/canvas-node-generation.ts` |
-| 布局和连线算法 | `web/src/lib/canvas/canvas-layout.ts`、`canvas-frame.ts` |
+| 智能整理、组合与镜头规划、新增避让 | `web/src/lib/canvas/canvas-smart-layout.ts`；统一入口 `web/src/components/canvas/canvas-arrange-control.tsx`；整次撤销 `web/src/pages/canvas/use-canvas-history.ts` |
+| 布局和连线算法 | `web/src/lib/canvas/canvas-layout.ts`、`canvas-frame.ts`；后端基础布局 `backend/internal/canvas/layout/graph.go`，两端共用该目录 `testdata/canvas-layout.json` 验证坐标 |
 | 任务结果准备与按节点提交 | `web/src/lib/canvas/canvas-generation-task-sync.ts`、`canvas-generation-result.ts`；持久化协调在 `web/src/services/canvas-generation-consumer.ts` |
 | 编辑命令与批次状态投影 | `web/src/lib/canvas/canvas-editor-state.ts`、`canvas-task-state.ts`、`canvas-image-batch-retry.ts` |
 | 视口节点选择与输入关系解析 | `web/src/lib/canvas/canvas-node-visibility.ts`、`canvas-resource-references.ts` |

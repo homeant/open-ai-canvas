@@ -7,9 +7,9 @@ export type CanvasLayoutLane = "text" | "image" | "video" | "audio";
 
 const FLOW_COLUMN_GAP = 120;
 // 节点标题挂在节点上方约 24px，行距必须大于它，否则上一行底部会压住下一行标题。
-const FLOW_ROW_GAP = 48;
+const FLOW_ROW_GAP = 56;
 const LANE_GAP = 96;
-const GRID_NODE_GAP = 48;
+const GRID_NODE_GAP = 56;
 const LANE_MAX_COLUMNS = 6;
 const BLOCK_GAP = 160;
 const OBSTACLE_GAP = 64;
@@ -19,7 +19,7 @@ export function layoutCanvasNodes(nodes: CanvasNodeData[], mode: CanvasLayoutMod
     const sorted = [...nodes].sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x);
     const left = Math.min(...sorted.map((node) => node.position.x));
     const top = Math.min(...sorted.map((node) => node.position.y));
-    const gap = 32;
+    const gap = 56;
     const result = new Map<string, Position>();
 
     if (mode === "row") {
@@ -47,11 +47,14 @@ export function layoutCanvasNodes(nodes: CanvasNodeData[], mode: CanvasLayoutMod
     return result;
 }
 
-type LayoutBlock = { positions: Map<string, Position>; width: number; height: number; anchor: Position };
+type LayoutBlock = { positions: Map<string, Position>; original: Map<string, Position>; width: number; height: number; anchor: Position };
 type LayoutRect = { left: number; top: number; right: number; bottom: number };
 
-function byOriginalPosition(a: CanvasNodeData, b: CanvasNodeData) {
-    return a.position.y - b.position.y || a.position.x - b.position.x || a.id.localeCompare(b.id);
+function byStableOrder(a: CanvasNodeData, b: CanvasNodeData) {
+    // Geometry must not become the next run's sorting key, or repeated arrangements can shuffle nodes.
+    const aKey = `${a.createdAt || ""}\u0000${a.id}`;
+    const bKey = `${b.createdAt || ""}\u0000${b.id}`;
+    return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
 }
 
 function layoutOrigin(nodes: CanvasNodeData[]): Position {
@@ -64,7 +67,7 @@ function layoutMediaLaneBlock(nodes: CanvasNodeData[]): LayoutBlock {
     let top = 0;
     let width = 0;
     LANE_ORDER.forEach((lane) => {
-        const laneNodes = nodes.filter((node) => canvasLayoutLane(node) === lane).sort(byOriginalPosition);
+        const laneNodes = nodes.filter((node) => canvasLayoutLane(node) === lane).sort(byStableOrder);
         if (!laneNodes.length) return;
         const columns = Math.min(LANE_MAX_COLUMNS, Math.max(1, Math.ceil(Math.sqrt(laneNodes.length))));
         for (let start = 0; start < laneNodes.length; start += columns) {
@@ -79,7 +82,7 @@ function layoutMediaLaneBlock(nodes: CanvasNodeData[]): LayoutBlock {
         }
         top += LANE_GAP - GRID_NODE_GAP;
     });
-    return { positions, width, height: Math.max(0, top - LANE_GAP), anchor: layoutOrigin(nodes) };
+    return { positions, original: new Map(nodes.map((node) => [node.id, node.position])), width, height: Math.max(0, top - LANE_GAP), anchor: layoutOrigin(nodes) };
 }
 
 /**
@@ -88,7 +91,7 @@ function layoutMediaLaneBlock(nodes: CanvasNodeData[]): LayoutBlock {
  */
 function layoutGraphBlock(nodes: CanvasNodeData[], edges: Array<[string, string]>): LayoutBlock {
     const byId = new Map(nodes.map((node) => [node.id, node]));
-    const ordered = [...nodes].sort(byOriginalPosition);
+    const ordered = [...nodes].sort(byStableOrder);
     const outbound = new Map(nodes.map((node) => [node.id, [] as string[]]));
     edges.forEach(([from, to]) => outbound.get(from)!.push(to));
 
@@ -170,7 +173,7 @@ function layoutGraphBlock(nodes: CanvasNodeData[], edges: Array<[string, string]
         position.y -= minY;
         height = Math.max(height, position.y + byId.get(id)!.height);
     });
-    return { positions, width: columnX - FLOW_COLUMN_GAP, height, anchor: layoutOrigin(nodes) };
+    return { positions, original: new Map(nodes.map((node) => [node.id, node.position])), width: columnX - FLOW_COLUMN_GAP, height, anchor: layoutOrigin(nodes) };
 }
 
 function rectsOverlap(a: LayoutRect, b: LayoutRect, gap: number) {
@@ -179,6 +182,18 @@ function rectsOverlap(a: LayoutRect, b: LayoutRect, gap: number) {
 
 /** 把各布局块按行装箱到原选区左上角；与固定节点（锁定、框架、选区外节点）冲突时向右或向下避让。 */
 function packLayoutBlocks(blocks: LayoutBlock[], origin: Position, obstacles: LayoutRect[]) {
+    // Preserve valid block placements. Repacking from a shifted origin would otherwise drift around fixed obstacles.
+    const currentRects = blocks.map((block) => ({ left: block.anchor.x, top: block.anchor.y, right: block.anchor.x + block.width, bottom: block.anchor.y + block.height }));
+    const alreadyPlaced = blocks.every(
+        (block, index) =>
+            [...block.positions].every(([id, position]) => {
+                const original = block.original.get(id)!;
+                return Math.abs(original.x - block.anchor.x - position.x) < 0.001 && Math.abs(original.y - block.anchor.y - position.y) < 0.001;
+            }) &&
+            !obstacles.some((rect) => rectsOverlap(currentRects[index]!, rect, OBSTACLE_GAP)) &&
+            !currentRects.slice(0, index).some((rect) => rectsOverlap(currentRects[index]!, rect, BLOCK_GAP)),
+    );
+    if (alreadyPlaced) return new Map(blocks.flatMap((block) => [...block.original]));
     const result = new Map<string, Position>();
     const totalArea = blocks.reduce((sum, block) => sum + (block.width + BLOCK_GAP) * (block.height + BLOCK_GAP), 0);
     const rowWidth = Math.max(...blocks.map((block) => block.width), Math.sqrt(totalArea) * 1.6);
@@ -193,7 +208,8 @@ function packLayoutBlocks(blocks: LayoutBlock[], origin: Position, obstacles: La
             x = origin.x;
             y = rowBottom + BLOCK_GAP;
         }
-        for (let guard = 0; guard < 10_000; guard += 1) {
+        // Each collision advances x or moves y beyond an obstacle; never silently accept an overlapping fallback.
+        for (;;) {
             const rect = { left: x, top: y, right: x + block.width, bottom: y + block.height };
             const hit = placed.find((item) => rectsOverlap(rect, item.rect, item.gap));
             if (!hit) break;
@@ -260,13 +276,13 @@ function layoutCanvasGraph(nodes: CanvasNodeData[], connections: CanvasConnectio
 }
 
 /** 按连线整理：有连线的连通分量分层排布，孤立节点按媒体泳道收拢。 */
-export function layoutCanvasFlow(nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return layoutCanvasGraph(nodes, connections, []);
+export function layoutCanvasFlow(nodes: CanvasNodeData[], connections: CanvasConnection[], obstacles: CanvasNodeData[] = []) {
+    return layoutCanvasGraph(nodes, connections, obstacles.map(canvasNodeBounds));
 }
 
-export function layoutCanvasNodesByMediaType(nodes: CanvasNodeData[]) {
+export function layoutCanvasNodesByMediaType(nodes: CanvasNodeData[], obstacles: CanvasNodeData[] = []) {
     if (!nodes.length) return new Map<string, Position>();
-    return packLayoutBlocks([layoutMediaLaneBlock(nodes)], layoutOrigin(nodes), []);
+    return packLayoutBlocks([layoutMediaLaneBlock(nodes)], layoutOrigin(nodes), obstacles.map(canvasNodeBounds));
 }
 
 /**
