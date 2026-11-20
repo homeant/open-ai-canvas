@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -102,6 +103,8 @@ type requestPackageVersion struct {
 	SHA256  string `json:"sha256"`
 }
 
+var errRequestPackageVersionConflict = errors.New("request package version has a different digest")
+
 func retainRequestPackage(record pluginRegistryRecord, next protocol.Manifest, digest string) ([]requestPackageVersion, error) {
 	history := append([]requestPackageVersion(nil), record.History...)
 	if record.PackageSHA256 == "" || record.PackagePath == "" {
@@ -120,14 +123,14 @@ func retainRequestPackage(record pluginRegistryRecord, next protocol.Manifest, d
 	if previous.Metadata.Version != next.Metadata.Version {
 		history = append(history, requestPackageVersion{Version: previous.Metadata.Version, SHA256: record.PackageSHA256})
 	} else if record.PackageSHA256 != digest {
-		return nil, fmt.Errorf("请求插件 %s@%s 已安装，但包摘要不同；请发布新版本", record.ID, next.Metadata.Version)
+		return nil, fmt.Errorf("请求插件 %s@%s 已安装，但包摘要不同；请发布新版本: %w", record.ID, next.Metadata.Version, errRequestPackageVersionConflict)
 	}
 	for index, release := range history {
 		if release.Version != next.Metadata.Version {
 			continue
 		}
 		if release.SHA256 != digest {
-			return nil, fmt.Errorf("请求插件 %s@%s 已安装，但包摘要不同；请发布新版本", record.ID, release.Version)
+			return nil, fmt.Errorf("请求插件 %s@%s 已安装，但包摘要不同；请发布新版本: %w", record.ID, release.Version, errRequestPackageVersionConflict)
 		}
 		return append(history[:index], history[index+1:]...), nil
 	}
@@ -216,6 +219,23 @@ func (c *pluginRuntime) bootstrapBuiltInPlugins() error {
 		hash := official.hash
 		record.History, err = retainRequestPackage(record, manifest, hash)
 		if err != nil {
+			if errors.Is(err, errRequestPackageVersionConflict) {
+				// A repacked release cannot replace an admitted protocol or take
+				// unrelated reads offline. Keep the verified installed package.
+				installed := byID[id]
+				data, readErr := os.ReadFile(filepath.Join(c.packageDir, filepath.Base(installed.PackagePath)))
+				if readErr != nil {
+					return fmt.Errorf("读取已安装请求插件 %s: %w", id, readErr)
+				}
+				if pluginHash(data) != installed.PackageSHA256 {
+					return fmt.Errorf("已安装请求插件 %s 包完整性校验失败", id)
+				}
+				if _, inspectErr := protocol.InspectPluginPackage(data); inspectErr != nil {
+					return fmt.Errorf("校验已安装请求插件 %s: %w", id, inspectErr)
+				}
+				slog.Warn("官方请求插件升级冲突，保留已安装版本", "plugin", id, "error", err)
+				continue
+			}
 			return err
 		}
 		record.Withdrawn = false
