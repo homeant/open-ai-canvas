@@ -18,7 +18,7 @@ func TestDramaShotMediaMigrationPreservesFormalRows(t *testing.T) {
 	}
 	var step migration
 	for _, candidate := range schemaMigrations {
-		if candidate.version == 112 {
+		if candidate.version == 116 {
 			step = candidate
 		}
 	}

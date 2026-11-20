@@ -18,12 +18,12 @@ func TestDramaMCPEditingMigrationPreservesExistingRows(t *testing.T) {
 	}
 	var step migration
 	for _, candidate := range schemaMigrations {
-		if candidate.version == 109 {
+		if candidate.version == 113 {
 			step = candidate
 		}
 	}
-	if step.version != 109 {
-		t.Fatal("expected migration 109")
+	if step.version != 113 {
+		t.Fatal("expected migration 113")
 	}
 	if err := step.apply(db); err != nil {
 		t.Fatal(err)

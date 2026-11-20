@@ -24,11 +24,11 @@ func TestDramaAudioMigrationPreservesVideoAndScript(t *testing.T) {
 	}
 	var step migration
 	for _, candidate := range schemaMigrations {
-		if candidate.version == 110 {
+		if candidate.version == 114 {
 			step = candidate
 		}
 	}
-	if step.version != 110 {
+	if step.version != 114 {
 		t.Fatal("expected audio migration")
 	}
 	for range 2 {

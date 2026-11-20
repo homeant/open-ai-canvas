@@ -20,6 +20,7 @@ type CanvasProjectSelectionToolbarProps = {
     onAlign: (mode: CanvasAlignmentMode) => void;
     onArrange: (mode: CanvasArrangeMode) => void;
     onCreateStoryboard: () => void;
+    onCreateFrame: () => void;
     onCreateReferenceGroup: () => void;
     onBatchConnect: () => void;
     onCompareImages?: () => void;
@@ -35,6 +36,7 @@ export function CanvasProjectSelectionToolbar({
     onAlign,
     onArrange,
     onCreateStoryboard,
+    onCreateFrame,
     onCreateReferenceGroup,
     onBatchConnect,
     onCompareImages,
@@ -47,6 +49,7 @@ export function CanvasProjectSelectionToolbar({
         onAlign,
         onArrange,
         onCreateStoryboard,
+        onCreateFrame,
         onCreateReferenceGroup,
         onBatchConnect,
         onCompareImages,

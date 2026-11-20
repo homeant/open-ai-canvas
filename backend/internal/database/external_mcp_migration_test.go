@@ -16,13 +16,13 @@ func TestExternalMCPMigrationAndTaskIdempotencyIndex(t *testing.T) {
 	}
 	var step migration
 	for _, candidate := range schemaMigrations {
-		if candidate.version == 106 {
+		if candidate.version == 110 {
 			step = candidate
 			break
 		}
 	}
 	if step.apply == nil {
-		t.Fatal("missing migration 106")
+		t.Fatal("missing migration 110")
 	}
 	for i := 0; i < 2; i++ {
 		if err := step.apply(db); err != nil {

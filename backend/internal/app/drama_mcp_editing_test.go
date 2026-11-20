@@ -49,7 +49,11 @@ func TestDramaMCPConcurrentEditsHaveOneWinner(t *testing.T) {
 }
 
 func TestDramaMCPComposeCompactReceipt(t *testing.T) {
-	svc, _, project, episode, _ := mcpEditingFixture(t)
+	svc, fake, project, episode, before := mcpEditingFixture(t)
+	video := fake.resource("usr-drama", "video", "video/mp4")
+	if err := svc.repo.UpdateDramaSegmentFields(before.Segment.ID, map[string]any{"video_resource_id": video, "video_status": model.DramaMediaReady}); err != nil {
+		t.Fatal(err)
+	}
 	row, err := svc.repo.DramaEpisode(project, episode)
 	if err != nil {
 		t.Fatal(err)
@@ -69,6 +73,22 @@ func TestDramaMCPComposeCompactReceipt(t *testing.T) {
 	after, err := svc.repo.DramaEpisode(project, episode)
 	if err != nil || row.Approved != after.Approved {
 		t.Fatal("compose changed approval")
+	}
+	jobs, err := svc.repo.DramaJobsByStatus(project, model.DramaJobQueued, model.DramaJobRunning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compositions := 0
+	for _, job := range jobs {
+		if job.Kind == model.DramaJobRender || job.Kind == model.DramaJobSegmentVideo {
+			t.Fatalf("MCP composition queued a generation or automatic render: %+v", job)
+		}
+		if job.Kind == model.DramaJobCompose {
+			compositions++
+		}
+	}
+	if compositions != 1 {
+		t.Fatalf("idempotent composition queued %d jobs", compositions)
 	}
 }
 

@@ -73,10 +73,10 @@ func probeMediaFile(ctx context.Context, path string) (mediaProbeInfo, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, mediaProbeTimeout)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, bin,
+	output, err := hideCommandWindow(exec.CommandContext(ctx, bin,
 		"-v", "error",
 		"-show_entries", "stream=index,codec_type,codec_name,channels,sample_rate,width,height:stream_side_data=rotation:format=duration:format_tags",
-		"-of", "json", path).Output()
+		"-of", "json", path)).Output()
 	if err != nil {
 		return mediaProbeInfo{}, fmt.Errorf("媒体探测失败：%w", err)
 	}

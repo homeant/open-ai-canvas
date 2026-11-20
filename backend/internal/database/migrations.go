@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 112
+const CurrentSchemaVersion int64 = 116
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -370,21 +370,43 @@ var schemaMigrations = []migration{
 	{version: 103, name: "mcp_tenant_boundaries", checksum: "sha256:mcp-tenant-boundaries-v103", apply: migrateMCPTenantBoundaries},
 	{version: 104, name: "agent_storage_limits", checksum: "sha256:agent-storage-limits-v104", apply: migrateAgentStorageLimits},
 	{version: 105, name: "image_usage_billing", checksum: "sha256:image-usage-billing-v105", apply: migrateImageUsageBilling},
-	{version: 106, name: "external_mcp_access", checksum: "sha256:external-mcp-access-v102", apply: func(tx *gorm.DB) error {
+	{version: 106, name: "team_workspaces", checksum: "sha256:team-workspaces-v106", apply: migrateTeamWorkspaces},
+	{version: 107, name: "company_workgroups", checksum: "sha256:company-workgroups-v107", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.Team{})
+	}},
+	{version: 108, name: "shared_workspace_content", checksum: "sha256:shared-workspace-content-v108", apply: migrateSharedWorkspaceContent},
+	{version: 109, name: "model_protocol_releases", checksum: "sha256:model-protocol-releases-v109", apply: func(tx *gorm.DB) error {
+		for _, column := range []struct {
+			entity any
+			name   string
+		}{{&model.ChannelModel{}, "ProtocolRelease"}, {&model.Task{}, "ProtocolBindingJSON"}, {&model.RouteAttempt{}, "ProtocolBindingJSON"}} {
+			if !tx.Migrator().HasTable(column.entity) || tx.Migrator().HasColumn(column.entity, column.name) {
+				continue
+			}
+			if err := tx.Migrator().AddColumn(column.entity, column.name); err != nil {
+				return err
+			}
+		}
+		if !tx.Migrator().HasTable(&model.ChannelModel{}) || tx.Migrator().HasIndex(&model.ChannelModel{}, "ProtocolRelease") {
+			return nil
+		}
+		return tx.Migrator().CreateIndex(&model.ChannelModel{}, "ProtocolRelease")
+	}},
+	{version: 110, name: "external_mcp_access", checksum: "sha256:external-mcp-access-v102", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.UserAPIKey{}, &model.MCPClient{}, &model.MCPAuthorizationCode{}, &model.Task{}, &model.Project{})
 	}},
-	{version: 107, name: "project_external_request_hash", checksum: "sha256:project-external-request-hash-v103", apply: migrateProjectExternalRequestHash},
-	{version: 108, name: "drama_segment_prompt_revisions", checksum: "sha256:drama-segment-prompt-revisions-v104", apply: migrateDramaSegmentPromptRevisions},
-	{version: 109, name: "drama_mcp_editing", checksum: "sha256:drama-mcp-editing-v109", apply: func(tx *gorm.DB) error {
+	{version: 111, name: "project_external_request_hash", checksum: "sha256:project-external-request-hash-v103", apply: migrateProjectExternalRequestHash},
+	{version: 112, name: "drama_segment_prompt_revisions", checksum: "sha256:drama-segment-prompt-revisions-v104", apply: migrateDramaSegmentPromptRevisions},
+	{version: 113, name: "drama_mcp_editing", checksum: "sha256:drama-mcp-editing-v109", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaMutationReceipt{}, &model.DramaShot{}, &model.DramaSegment{}, &model.DramaTake{})
 	}},
-	{version: 110, name: "drama_audio_versions", checksum: "sha256:drama-audio-versions-v110", apply: func(tx *gorm.DB) error {
+	{version: 114, name: "drama_audio_versions", checksum: "sha256:drama-audio-versions-v110", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaAudioVersion{}, &model.DramaAudioResourceLink{})
 	}},
-	{version: 111, name: "drama_audio_checks", checksum: "sha256:drama-audio-checks-v111", apply: func(tx *gorm.DB) error {
+	{version: 115, name: "drama_audio_checks", checksum: "sha256:drama-audio-checks-v111", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaAudioCheck{})
 	}},
-	{version: 112, name: "drama_shot_media", checksum: "sha256:drama-shot-media-v112", apply: func(tx *gorm.DB) error {
+	{version: 116, name: "drama_shot_media", checksum: "sha256:drama-shot-media-v112", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.DramaShot{}, &model.DramaTake{}, &model.DramaShotMediaReview{})
 	}},
 }
@@ -1304,6 +1326,9 @@ func MigrateSchema(db *gorm.DB) error {
 		if err := relocateLegacyExternalMCPMigrations(tx); err != nil {
 			return err
 		}
+		if err := relocateExternalMCP106Migrations(tx); err != nil {
+			return err
+		}
 		plan, err := migrationsForDatabase(tx)
 		if err != nil {
 			return err
@@ -1428,7 +1453,7 @@ func relocateLegacyOfficialMigrations(tx *gorm.DB) error {
 }
 
 // relocateLegacyExternalMCPMigrations moves the complete local 102–104 ledger
-// past the upstream 102–105 migrations. It preserves the applied timestamps and
+// past the upstream 102–109 migrations. It preserves the applied timestamps and
 // refuses partial or unexpected records so an existing database is never guessed into shape.
 func relocateLegacyExternalMCPMigrations(tx *gorm.DB) error {
 	var first schemaMigration
@@ -1448,9 +1473,9 @@ func relocateLegacyExternalMCPMigrations(tx *gorm.DB) error {
 		name       string
 		checksum   string
 	}{
-		{102, 106, "external_mcp_access", "sha256:external-mcp-access-v102"},
-		{103, 107, "project_external_request_hash", "sha256:project-external-request-hash-v103"},
-		{104, 108, "drama_segment_prompt_revisions", "sha256:drama-segment-prompt-revisions-v104"},
+		{102, 110, "external_mcp_access", "sha256:external-mcp-access-v102"},
+		{103, 111, "project_external_request_hash", "sha256:project-external-request-hash-v103"},
+		{104, 112, "drama_segment_prompt_revisions", "sha256:drama-segment-prompt-revisions-v104"},
 	}
 	var maxVersion int64
 	if err := tx.Model(&schemaMigration{}).Select("COALESCE(MAX(version), 0)").Scan(&maxVersion).Error; err != nil {

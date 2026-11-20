@@ -1,7 +1,7 @@
 package app
 
 import (
-	"time"
+	"errors"
 
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/repository"
@@ -53,16 +53,13 @@ func (s *Service) ComposeDramaEpisodeMCP(userID string, req ComposeDramaMCPReque
 		}
 		var job *model.DramaJob
 		for i := range jobs {
-			if jobs[i].EpisodeID == req.EpisodeID && jobs[i].Kind == model.DramaJobRender {
+			if jobs[i].EpisodeID == req.EpisodeID && jobs[i].Kind == model.DramaJobCompose {
 				job = &jobs[i]
 				break
 			}
 		}
 		if job == nil {
-			job = &model.DramaJob{ID: newID(), ProjectID: req.DramaID, EpisodeID: req.EpisodeID, Kind: model.DramaJobRender, Status: model.DramaJobQueued, Label: "MCP 合成剧集", CreatedAt: time.Now(), UpdatedAt: time.Now()}
-			if err := local.repo.CreateDramaJobs([]model.DramaJob{*job}); err != nil {
-				return nil, err
-			}
+			return nil, errors.New("合成作业未创建")
 		}
 		return map[string]any{"episodeId": req.EpisodeID, "jobId": job.ID, "taskId": job.TaskID, "revision": detail.Episode.Revision, "finalResourceId": detail.Episode.FinalResourceID, "finalStale": detail.Episode.FinalStale, "status": job.Status}, nil
 	})
