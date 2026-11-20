@@ -81,8 +81,8 @@ export function CanvasProjectSelectionToolbar({
     return (
         <CanvasSelectionToolbar anchorRef={anchorRef} containerRef={containerRef} count={count}>
             <div className="flex max-w-full items-center gap-2 overflow-x-auto">
-            <CanvasArrangeControl selectedCount={count} onArrange={onArrange} />
-            <FloatingDock items={items} size="compact" className="canvas-floating-dock" style={canvasDockStyle(theme)} ariaLabel={t("canvasPage.selectionToolbar.ariaLabel")} />
+                <CanvasArrangeControl selectedCount={count} onArrange={onArrange} />
+                <FloatingDock items={items} size="compact" className="canvas-floating-dock" style={canvasDockStyle(theme)} ariaLabel={t("canvasPage.selectionToolbar.ariaLabel")} />
             </div>
         </CanvasSelectionToolbar>
     );

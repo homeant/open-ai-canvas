@@ -6,10 +6,12 @@ function node(id: string, patch: Partial<CanvasNodeData> = {}): CanvasNodeData {
     return { id, type: CanvasNodeType.Image, title: id, position: { x: 100, y: 100 }, width: 320, height: 180, metadata: { content: `resource:${id}` }, ...patch };
 }
 function expectSeparated(nodes: CanvasNodeData[], gap = 48) {
-    nodes.forEach((a, i) => nodes.slice(i + 1).forEach((b) => {
-        const collision = a.position.x < b.position.x + b.width + gap && b.position.x < a.position.x + a.width + gap && a.position.y < b.position.y + b.height + gap && b.position.y < a.position.y + a.height + gap;
-        if (collision) throw new Error(`${a.id} overlaps ${b.id}: ${JSON.stringify([a.position, b.position])}`);
-    }));
+    nodes.forEach((a, i) =>
+        nodes.slice(i + 1).forEach((b) => {
+            const collision = a.position.x < b.position.x + b.width + gap && b.position.x < a.position.x + a.width + gap && a.position.y < b.position.y + b.height + gap && b.position.y < a.position.y + a.height + gap;
+            if (collision) throw new Error(`${a.id} overlaps ${b.id}: ${JSON.stringify([a.position, b.position])}`);
+        }),
+    );
 }
 
 describe("smart canvas arrangement", () => {
@@ -95,7 +97,11 @@ describe("smart canvas arrangement", () => {
 
     test("cyclic and external edges do not lose nodes or mutate the graph", () => {
         const nodes = [node("a"), node("b"), node("c")];
-        const edges: CanvasConnection[] = [{ id: "a", fromNodeId: "a", toNodeId: "b" }, { id: "b", fromNodeId: "b", toNodeId: "a" }, { id: "outside", fromNodeId: "outside", toNodeId: "c" }];
+        const edges: CanvasConnection[] = [
+            { id: "a", fromNodeId: "a", toNodeId: "b" },
+            { id: "b", fromNodeId: "b", toNodeId: "a" },
+            { id: "outside", fromNodeId: "outside", toNodeId: "c" },
+        ];
         const before = structuredClone(edges);
         expectSeparated(arrangeCanvasDocument(nodes, edges, { mode: "auto" }).nodes);
         expect(edges).toEqual(before);
@@ -112,7 +118,10 @@ describe("smart canvas arrangement", () => {
 
     test("all layout modes remain stable with obstacles and disconnected components", () => {
         const nodes = Array.from({ length: 30 }, (_, i) => node(`n${i}`, { position: { x: (i * 71) % 600, y: (i * 83) % 500 }, width: 200 + (i % 4) * 90, height: 160 + (i % 5) * 100, metadata: { locked: i % 8 === 0 } }));
-        const edges = nodes.slice(1).filter((_, i) => i % 3 === 0).map((item, i) => ({ id: `e${i}`, fromNodeId: nodes[i]!.id, toNodeId: item.id }));
+        const edges = nodes
+            .slice(1)
+            .filter((_, i) => i % 3 === 0)
+            .map((item, i) => ({ id: `e${i}`, fromNodeId: nodes[i]!.id, toNodeId: item.id }));
         CANVAS_ARRANGE_OPTIONS.forEach(({ mode }) => {
             const result = arrangeCanvasDocument(nodes, edges, { mode });
             expect(arrangeCanvasDocument(result.nodes, edges, { mode }).movedCount, mode).toBe(0);

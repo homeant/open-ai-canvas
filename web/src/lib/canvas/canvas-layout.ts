@@ -184,11 +184,15 @@ function rectsOverlap(a: LayoutRect, b: LayoutRect, gap: number) {
 function packLayoutBlocks(blocks: LayoutBlock[], origin: Position, obstacles: LayoutRect[]) {
     // Preserve valid block placements. Repacking from a shifted origin would otherwise drift around fixed obstacles.
     const currentRects = blocks.map((block) => ({ left: block.anchor.x, top: block.anchor.y, right: block.anchor.x + block.width, bottom: block.anchor.y + block.height }));
-    const alreadyPlaced = blocks.every((block, index) => [...block.positions].every(([id, position]) => {
-        const original = block.original.get(id)!;
-        return Math.abs(original.x - block.anchor.x - position.x) < 0.001 && Math.abs(original.y - block.anchor.y - position.y) < 0.001;
-    }) && !obstacles.some((rect) => rectsOverlap(currentRects[index]!, rect, OBSTACLE_GAP))
-        && !currentRects.slice(0, index).some((rect) => rectsOverlap(currentRects[index]!, rect, BLOCK_GAP)));
+    const alreadyPlaced = blocks.every(
+        (block, index) =>
+            [...block.positions].every(([id, position]) => {
+                const original = block.original.get(id)!;
+                return Math.abs(original.x - block.anchor.x - position.x) < 0.001 && Math.abs(original.y - block.anchor.y - position.y) < 0.001;
+            }) &&
+            !obstacles.some((rect) => rectsOverlap(currentRects[index]!, rect, OBSTACLE_GAP)) &&
+            !currentRects.slice(0, index).some((rect) => rectsOverlap(currentRects[index]!, rect, BLOCK_GAP)),
+    );
     if (alreadyPlaced) return new Map(blocks.flatMap((block) => [...block.original]));
     const result = new Map<string, Position>();
     const totalArea = blocks.reduce((sum, block) => sum + (block.width + BLOCK_GAP) * (block.height + BLOCK_GAP), 0);

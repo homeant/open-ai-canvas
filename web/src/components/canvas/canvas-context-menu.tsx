@@ -276,7 +276,11 @@ export function CanvasNodeContextMenu({
                         </>
                     ) : menu.type === "canvas" ? (
                         <>
-                            {onArrange ? <div className="p-1"><CanvasArrangeControl selectedCount={selectedCount} onArrange={(mode) => runAction(() => onArrange(mode))} /></div> : null}
+                            {onArrange ? (
+                                <div className="p-1">
+                                    <CanvasArrangeControl selectedCount={selectedCount} onArrange={(mode) => runAction(() => onArrange(mode))} />
+                                </div>
+                            ) : null}
                             {hasMultiSelection ? (
                                 <>
                                     {!onArrange ? <MenuButton icon={<LayoutTemplate className="size-4" />} label="仅消除重叠" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} /> : null}
@@ -296,7 +300,13 @@ export function CanvasNodeContextMenu({
                         <>
                             <MenuHeader title={`已选 ${selectedCount} 个节点`} />
                             <MenuSection label="选区" />
-                            {onArrange ? <div className="p-1"><CanvasArrangeControl selectedCount={selectedCount} onArrange={(mode) => runAction(() => onArrange(mode))} /></div> : <MenuButton icon={<LayoutTemplate />} label="仅消除重叠" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />}
+                            {onArrange ? (
+                                <div className="p-1">
+                                    <CanvasArrangeControl selectedCount={selectedCount} onArrange={(mode) => runAction(() => onArrange(mode))} />
+                                </div>
+                            ) : (
+                                <MenuButton icon={<LayoutTemplate />} label="仅消除重叠" disabled={!onSpreadSelection} onClick={() => onSpreadSelection && runAction(onSpreadSelection)} />
+                            )}
                             <MenuDivider />
                             <MenuButton icon={<Copy />} label={`复制 ${selectedCount} 个节点`} shortcut="⌘C" disabled={!onCopySelection} onClick={() => onCopySelection && runAction(onCopySelection)} />
                             {downloadSelectionButton}

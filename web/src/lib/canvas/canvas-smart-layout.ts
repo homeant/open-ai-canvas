@@ -74,18 +74,25 @@ function canvasUnits(nodes: CanvasNodeData[]): Unit[] {
         members.push(node);
         groups.set(root, members);
     });
-    return [...groups].map(([id, members]) => {
-        const root = byId.get(id)!;
-        const shown = members.filter(visible);
-        const rect = bounds(shown.length ? shown : [root]);
-        return { node: { ...root, type: root.type === CanvasNodeType.Frame ? CanvasNodeType.Text : root.type, position: { x: rect.x, y: rect.y }, width: rect.width, height: rect.height }, members, visible: shown, locked: members.some((node) => node.metadata?.locked) };
-    }).sort((a, b) => stableOrder(a.node, b.node));
+    return [...groups]
+        .map(([id, members]) => {
+            const root = byId.get(id)!;
+            const shown = members.filter(visible);
+            const rect = bounds(shown.length ? shown : [root]);
+            return {
+                node: { ...root, type: root.type === CanvasNodeType.Frame ? CanvasNodeType.Text : root.type, position: { x: rect.x, y: rect.y }, width: rect.width, height: rect.height },
+                members,
+                visible: shown,
+                locked: members.some((node) => node.metadata?.locked),
+            };
+        })
+        .sort((a, b) => stableOrder(a.node, b.node));
 }
 
 /** Each directional scan advances beyond an obstacle; at most n collisions are possible. */
 function freePosition(obstacles: Rect[], preferred: Position, size: { width: number; height: number }, gap = GAP, forwardOnly = false): Position {
     if (!obstacles.some((item) => overlaps({ ...preferred, ...size }, item, gap))) return preferred;
-    const alternatives = (forwardOnly ? ["down", "right"] as const : ["right", "down", "left", "up"] as const).map((direction) => {
+    const alternatives = (forwardOnly ? (["down", "right"] as const) : (["right", "down", "left", "up"] as const)).map((direction) => {
         const candidate = { ...preferred };
         for (let attempt = 0; attempt <= obstacles.length; attempt += 1) {
             const hits = obstacles.filter((item) => overlaps({ ...candidate, ...size }, item, gap));
@@ -101,7 +108,13 @@ function freePosition(obstacles: Rect[], preferred: Position, size: { width: num
 }
 
 export function findCanvasInsertionPosition(nodes: CanvasNodeData[], preferred: Position, size: { width: number; height: number }, options: { gap?: number; forwardOnly?: boolean } = {}) {
-    return freePosition(canvasUnits(nodes).map((unit) => ({ ...unit.node.position, width: unit.node.width, height: unit.node.height })), preferred, size, options.gap, options.forwardOnly);
+    return freePosition(
+        canvasUnits(nodes).map((unit) => ({ ...unit.node.position, width: unit.node.width, height: unit.node.height })),
+        preferred,
+        size,
+        options.gap,
+        options.forwardOnly,
+    );
 }
 
 /** Only the incoming units move. Call inside the state updater so concurrent uploads reserve different space. */
@@ -111,20 +124,24 @@ export function placeCanvasIncomingNodes(current: CanvasNodeData[], incoming: Ca
     const obstacles = canvasUnits(current).map((unit) => ({ ...unit.node.position, width: unit.node.width, height: unit.node.height }));
     const positions = new Map<string, Position>();
     canvasUnits(incoming).forEach((unit) => {
-        if (unit.members.some((node) => node.parentId && existingIds.has(node.parentId) || node.metadata?.batchRootId && existingIds.has(node.metadata.batchRootId))) return;
+        if (unit.members.some((node) => (node.parentId && existingIds.has(node.parentId)) || (node.metadata?.batchRootId && existingIds.has(node.metadata.batchRootId)))) return;
         const position = freePosition(obstacles, unit.node.position, unit.node);
         unit.members.forEach((node) => positions.set(node.id, { x: node.position.x + position.x - unit.node.position.x, y: node.position.y + position.y - unit.node.position.y }));
         obstacles.push({ ...position, width: unit.node.width, height: unit.node.height });
     });
-    return incoming.map((node) => positions.has(node.id) ? { ...node, position: positions.get(node.id)! } : node);
+    return incoming.map((node) => (positions.has(node.id) ? { ...node, position: positions.get(node.id)! } : node));
 }
 
 function shotOrder(nodes: CanvasNodeData[]) {
     const lane = ["text", "image", "video", "audio"];
-    return [...nodes].sort((a, b) => (a.metadata?.chapterTitle || a.metadata?.chapterId || "\uffff").localeCompare(b.metadata?.chapterTitle || b.metadata?.chapterId || "\uffff", undefined, { numeric: true })
-        || (a.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER)
-        || (a.metadata?.sceneId || "").localeCompare(b.metadata?.sceneId || "", undefined, { numeric: true })
-        || lane.indexOf(canvasLayoutLane(a)) - lane.indexOf(canvasLayoutLane(b)) || stableOrder(a, b));
+    return [...nodes].sort(
+        (a, b) =>
+            (a.metadata?.chapterTitle || a.metadata?.chapterId || "\uffff").localeCompare(b.metadata?.chapterTitle || b.metadata?.chapterId || "\uffff", undefined, { numeric: true }) ||
+            (a.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER) - (b.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER) ||
+            (a.metadata?.sceneId || "").localeCompare(b.metadata?.sceneId || "", undefined, { numeric: true }) ||
+            lane.indexOf(canvasLayoutLane(a)) - lane.indexOf(canvasLayoutLane(b)) ||
+            stableOrder(a, b),
+    );
 }
 
 export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: CanvasConnection[], options: { mode: CanvasArrangeMode; selectedIds?: Set<string> }) {
@@ -167,7 +184,11 @@ export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: Canv
             let previousKey = "";
             ordered.forEach((node, index) => {
                 const key = JSON.stringify([node.metadata?.chapterId || node.metadata?.chapterTitle || "", node.metadata?.shotIndex ?? node.id]);
-                if (index && key !== previousKey) { y += rowHeight + GAP; x = left; rowHeight = 0; }
+                if (index && key !== previousKey) {
+                    y += rowHeight + GAP;
+                    x = left;
+                    rowHeight = 0;
+                }
                 planned.set(node.id, { x, y });
                 x += node.width + GAP;
                 rowHeight = Math.max(rowHeight, node.height);
@@ -181,8 +202,7 @@ export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: Canv
         const delta = { x: first.position.x - planned.get(first.id)!.x, y: first.position.y - planned.get(first.id)!.y };
         const alreadyPlaced = candidates.every((node) => {
             const position = planned.get(node.id)!;
-            return Math.abs(node.position.x - position.x - delta.x) < 0.001 && Math.abs(node.position.y - position.y - delta.y) < 0.001
-                && !occupied.some((rect) => overlaps({ ...node.position, width: node.width, height: node.height }, rect));
+            return Math.abs(node.position.x - position.x - delta.x) < 0.001 && Math.abs(node.position.y - position.y - delta.y) < 0.001 && !occupied.some((rect) => overlaps({ ...node.position, width: node.width, height: node.height }, rect));
         });
         if (alreadyPlaced) planned = new Map(candidates.map((node) => [node.id, node.position]));
         else {
@@ -209,7 +229,7 @@ export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: Canv
             if (Math.abs(x - node.position.x) > 0.001 || Math.abs(y - node.position.y) > 0.001) finalPositions.set(node.id, { x, y });
         });
     });
-    const nextNodes = nodes.map((node) => finalPositions.has(node.id) ? { ...node, position: finalPositions.get(node.id)! } : node);
+    const nextNodes = nodes.map((node) => (finalPositions.has(node.id) ? { ...node, position: finalPositions.get(node.id)! } : node));
     const visibleIds = new Set(moving.flatMap((unit) => unit.visible.map((node) => node.id)));
     return { nodes: nextNodes, movedCount: finalPositions.size, unitCount: moving.length, lockedCount: selected.filter((unit) => unit.locked).length, focusNodes: nextNodes.filter((node) => visibleIds.has(node.id)) };
 }

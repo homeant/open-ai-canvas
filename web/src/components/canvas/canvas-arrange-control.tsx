@@ -8,17 +8,42 @@ export function CanvasArrangeControl({ selectedCount = 0, onArrange }: { selecte
     const scope = selectedCount ? `选中 ${selectedCount} 个节点（组合整体移动）` : "整张画布（保留锁定节点）";
     const theme = canvasThemes[useActiveTheme()];
     return (
-        <div data-canvas-no-zoom className="inline-flex shrink-0 items-center rounded-[var(--r-lg)] border p-1" style={{ background: theme.spatial.elevated, borderColor: theme.toolbar.border, color: theme.node.text }}
-            onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
-            <Button size="small" type="text" icon={<LayoutTemplate className="size-4" />} title={`智能整理：${scope}`} onClick={() => onArrange("auto")}>智能整理</Button>
-            <Dropdown trigger={["click"]} placement="topRight" menu={{
-                items: [
-                    { key: "scope", label: scope, disabled: true },
-                    { type: "divider" },
-                    ...CANVAS_ARRANGE_OPTIONS.map((option) => ({ key: option.mode, label: <span className="flex flex-col gap-0.5 py-1"><span>{option.label}</span><span className="text-[var(--fs-caption)] text-[var(--text-secondary)]">{option.description}</span></span> })),
-                ],
-                onClick: ({ key }) => onArrange(key as CanvasArrangeMode),
-            }} popupRender={(menu) => <div data-canvas-no-zoom data-canvas-wheel-scroll onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>{menu}</div>}>
+        <div
+            data-canvas-no-zoom
+            className="inline-flex shrink-0 items-center rounded-[var(--r-lg)] border p-1"
+            style={{ background: theme.spatial.elevated, borderColor: theme.toolbar.border, color: theme.node.text }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
+        >
+            <Button size="small" type="text" icon={<LayoutTemplate className="size-4" />} title={`智能整理：${scope}`} onClick={() => onArrange("auto")}>
+                智能整理
+            </Button>
+            <Dropdown
+                trigger={["click"]}
+                placement="topRight"
+                menu={{
+                    items: [
+                        { key: "scope", label: scope, disabled: true },
+                        { type: "divider" },
+                        ...CANVAS_ARRANGE_OPTIONS.map((option) => ({
+                            key: option.mode,
+                            label: (
+                                <span className="flex flex-col gap-0.5 py-1">
+                                    <span>{option.label}</span>
+                                    <span className="text-[var(--fs-caption)] text-[var(--text-secondary)]">{option.description}</span>
+                                </span>
+                            ),
+                        })),
+                    ],
+                    onClick: ({ key }) => onArrange(key as CanvasArrangeMode),
+                }}
+                popupRender={(menu) => (
+                    <div data-canvas-no-zoom data-canvas-wheel-scroll onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                        {menu}
+                    </div>
+                )}
+            >
                 <Button size="small" type="text" aria-label="选择整理方式" icon={<ChevronDown className="size-3.5" />} />
             </Dropdown>
         </div>
