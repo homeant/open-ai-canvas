@@ -92,14 +92,19 @@ test("后台最多三路，打开预取中的页面时提升排队资源优先�
     }
 });
 
-test("真实 Vite helper 的预热失败沿用可取消的恢复事件，不执行原生 import", async () => {
+function vitePreloadHelper(runtime: boolean): string {
     const vite = readFileSync(resolve(import.meta.dir, "../node_modules/vite/dist/node/chunks/node.js"), "utf8");
     const start = vite.indexOf("function preload(baseModule, deps, importerUrl) {");
     const end = vite.indexOf("\nfunction getPreloadCode", start);
     expect(start).toBeGreaterThan(0);
     expect(end).toBeGreaterThan(start);
+    const helper = vite.slice(start, end).replaceAll("import.meta", "importMeta");
+    return runtime ? runInNewContext(`(${helper})`).toString() : helper;
+}
+
+test.each([false, true])("真实 Vite helper 的预热失败沿用可取消的恢复事件，不执行原生 import（运行时序列化：%s）", async (runtime) => {
     const transform = resilientPreload().transform as Function;
-    const transformed = transform(vite.slice(start, end), "\0vite/preload-helper.js").code.replace('import { PageResourceError, warmPreloadResources } from "@/lib/module-preload";', "").replaceAll("import.meta", "importMeta");
+    const transformed = transform(vitePreloadHelper(runtime), "\0vite/preload-helper.js").code.replace('import { PageResourceError, warmPreloadResources } from "@/lib/module-preload";', "").replaceAll("import.meta", "importMeta");
     const events: Event[] = [];
     const failure = new Error("asset 404");
     let cancel = true;
@@ -130,4 +135,60 @@ test("真实 Vite helper 的预热失败沿用可取消的恢复事件，不执�
     cancel = false;
     await expect(preload(nativeImport, ["./missing.js"])).rejects.toThrow("asset 404");
     expect(imported).toBe(false);
+});
+
+test.each([false, true])("CSS 并发预加载等待同一请求，失败后可创建新链接重试（运行时序列化：%s）", async (runtime) => {
+    const transform = resilientPreload().transform as Function;
+    const transformed = transform(vitePreloadHelper(runtime), "\0vite/preload-helper.js").code.replace('import { PageResourceError, warmPreloadResources } from "@/lib/module-preload";', "").replaceAll("import.meta", "importMeta");
+    const links: Array<{ href: string; rel: string; listeners: Record<string, () => void>; addEventListener: (event: string, callback: () => void) => void; remove: () => void }> = [];
+    const preload = runInNewContext(`${transformed}; preload`, {
+        Event,
+        PageResourceError,
+        URL,
+        __VITE_IS_MODERN__: true,
+        seen: {},
+        scriptRel: "modulepreload",
+        importMeta: { url: "https://assets.example/entry.js" },
+        assetsURL: (dep: string) => dep,
+        warmPreloadResources: async () => {},
+        window: { dispatchEvent: () => {} },
+        document: {
+            getElementsByTagName: () => links,
+            querySelector: () => null,
+            head: { appendChild: (link: (typeof links)[number]) => links.push(link) },
+            createElement: () => {
+                const link = {
+                    href: "",
+                    rel: "",
+                    listeners: {} as Record<string, () => void>,
+                    addEventListener(event: string, callback: () => void) {
+                        this.listeners[event] = callback;
+                    },
+                    remove() {
+                        links.splice(links.indexOf(this), 1);
+                    },
+                };
+                return link;
+            },
+        },
+    });
+    let imports = 0;
+    const nativeImport = async () => {
+        imports += 1;
+    };
+    const pending = Promise.allSettled([preload(nativeImport, ["./shared.css"]), preload(nativeImport, ["./shared.css"])]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(links).toHaveLength(1);
+    expect(imports).toBe(0);
+    links[0].listeners.error();
+    const results = await pending;
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(links).toHaveLength(0);
+    expect(imports).toBe(0);
+    const retry = preload(nativeImport, ["./shared.css"]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(links).toHaveLength(1);
+    links[0].listeners.load();
+    await retry;
+    expect(imports).toBe(1);
 });
