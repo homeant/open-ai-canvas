@@ -18,7 +18,11 @@ import (
 
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/production"
+	"yingce/backend/internal/protocol"
 )
+
+const dramaTailReferenceHeader = "以上一段尾帧作为本段的开场参考。"
+const dramaTailReferenceLabel = "参考图0"
 
 type dramaRevisionPayload struct {
 	ShotRevision   string `json:"shotRevision,omitempty"`
@@ -159,6 +163,7 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 	}
 	refs := []any{}
 	header := []string{}
+	tailMode := profile.tailFrameMode()
 	if explicitFrame != nil {
 		if profile.video.maxImagesFor("image_to_video") < 1 {
 			return request, nil, nil, errors.New("模型图片上限不能容纳明确首帧")
@@ -179,29 +184,47 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 		refs = append(refs, ref)
 		header = append(header, "首帧图为镜头 "+explicitFrame.ShotID+" 的明确绑定图片："+explicitFrame.Name)
 	} else if previous != nil {
-		request.Operation = "image_to_video"
+		if issue := profile.continuityIssue(settings); issue != "" {
+			request.Warning = issue
+			return request, nil, nil, errors.New(issue)
+		}
+		canSendReferenceImages := tailMode == protocol.DramaTailFrameReference && profile.video.maxImagesFor("reference_to_video") > 1 &&
+			slices.ContainsFunc(draft.view.Request.References, func(ref DramaSegmentReference) bool {
+				cast := casts[ref.CastID]
+				return ref.CastID == "" || cast.ImageStatus == model.DramaMediaReady && cast.ImageResourceID != ""
+			})
+		request.Operation = profile.tailFrameOperation(canSendReferenceImages)
+		request.TailFrameAsReference = request.Operation == "reference_to_video" && tailMode == protocol.DramaTailFrameReference
+		role := "first_frame"
+		if request.TailFrameAsReference {
+			role = "reference_image"
+			header = append(header, dramaTailReferenceHeader)
+		} else {
+			header = append(header, "首帧图为上一段视频的最后一帧。")
+		}
 		request.FirstFramePending = previous.VideoStatus != model.DramaMediaReady || previous.TailFrameResourceID == ""
 		if !request.FirstFramePending {
 			request.FirstFrameResourceID = previous.TailFrameResourceID
-			ref, err := s.dramaResourceReference(previous.TailFrameResourceID, "first-frame", "first_frame")
+			ref, err := s.dramaResourceReference(previous.TailFrameResourceID, "first-frame", role)
 			if err != nil {
 				return request, nil, nil, err
 			}
 			refs = append(refs, ref)
 		}
-		header = append(header, "首帧图为上一段视频的最后一帧。")
 	} else if profile.supports("reference_to_video") {
 		request.Operation = "reference_to_video"
 	} else {
 		request.Operation = "text_to_video"
 	}
 	if !profile.supports(request.Operation) {
-		if request.Operation == "image_to_video" {
-			return request, nil, nil, errors.New(profile.continuityIssue(settings))
-		}
 		return request, nil, nil, fmt.Errorf("所选模型不支持本段所需的 %s", request.Operation)
 	}
 	request.ModelMaxImages = profile.video.maxImagesFor(request.Operation)
+	tailOnly := previous != nil && request.Operation == "image_to_video" &&
+		(tailMode == protocol.DramaTailFrameReference || tailMode == protocol.DramaTailFrameOmni)
+	if tailOnly {
+		request.ModelMaxImages = min(request.ModelMaxImages, 1)
+	}
 	capacity := request.ModelMaxImages
 	if previous != nil || explicitFrame != nil {
 		capacity--
@@ -356,6 +379,9 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 	}
 	if len(unsent) > 0 {
 		request.Warning = "提示词引用的 " + strings.Join(unsent, "、") + " 未附图，无法对应模型图片；请补齐图片、调整参考图上限或修改正文中的引用后再生成"
+		if tailOnly {
+			request.Warning = "所选模型在尾帧续接时只能使用上一段尾帧，正文仍引用 " + strings.Join(unsent, "、") + "。请调整引用、改用并行出片或换用支持混合参考的模型"
+		}
 		return request, refs, audios, errors.New(request.Warning)
 	}
 	// 给不出作品画幅时不提交：上游会按自己的默认画幅（多为横屏）出片，花了钱也用不上。
@@ -487,6 +513,19 @@ func (s *Service) dramaResourceReference(id, name, role string) (map[string]any,
 	return ref, nil
 }
 
+func (request DramaSegmentRequest) bindVideoReferences(metadata map[string]any) string {
+	bindings := dramaReferenceBindings(request.References)
+	header := request.Header
+	if request.TailFrameAsReference {
+		bindings = append(bindings, dramaReferenceBinding{Label: dramaTailReferenceLabel, MediaID: "first-frame"})
+		header = strings.Replace(header, dramaTailReferenceHeader, "以"+dramaTailReferenceLabel+"作为本段的开场参考。", 1)
+	} else if request.FirstFrameResourceID != "" {
+		metadata["videoStartFrameNodeId"] = "first-frame"
+	}
+	metadata[dramaReferenceBindingsKey] = bindings
+	return header
+}
+
 func (r *dramaRun) submitSegmentVideo(job *model.DramaJob) (*model.Task, bool, error) {
 	segment, err := r.s.repo.DramaSegment(r.project.ID, job.ShotID)
 	if err != nil {
@@ -551,12 +590,9 @@ func (r *dramaRun) submitSegmentVideo(job *model.DramaJob) (*model.Task, bool, e
 		}
 		metadata := r.metadata(job)
 		metadata["videoEditOperation"] = request.Operation
-		metadata[dramaReferenceBindingsKey] = dramaReferenceBindings(request.References)
-		if previous != nil {
-			metadata["videoStartFrameNodeId"] = "first-frame"
-		}
+		header := request.bindVideoReferences(metadata)
 		config := dramaSegmentGenerationConfig(request)
-		prompt := strings.TrimSpace(request.Header + "\n\n" + firstNonEmpty(segment.VideoPromptOverride, segment.VideoPrompt))
+		prompt := strings.TrimSpace(header + "\n\n" + firstNonEmpty(segment.VideoPromptOverride, segment.VideoPrompt))
 		if chars := utf8.RuneCountInString(prompt); request.PromptMaxChars > 0 && chars > request.PromptMaxChars {
 			if strings.TrimSpace(segment.VideoPromptOverride) != "" {
 				return nil, false, fmt.Errorf("手动改写的视频提示词加上开头的参考图说明共 %d 个字符，超过所选视频模型上限 %d 个字符；请精简改写内容，或恢复模型版本后按上限重新撰写", chars, request.PromptMaxChars)

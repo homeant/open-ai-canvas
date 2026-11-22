@@ -49,7 +49,9 @@ export type AgentApprovalPreviewOperation =
     | "bind_character_voice"
     | "plan_step"
     | "adopt_drama_media"
-    | "update_drama_shot";
+    | "update_drama_shot"
+    | "previs_scene_create"
+    | "previs_apply_patch";
 
 export type AgentApprovalPreviewItem = {
     operation: AgentApprovalPreviewOperation;
