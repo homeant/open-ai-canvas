@@ -1,6 +1,6 @@
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, LayoutGrid, LoaderCircle, LocateFixed, Send } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, LayoutGrid, LoaderCircle, LocateFixed, Search, Send } from "lucide-react";
 import { Link } from "react-router";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
@@ -24,13 +24,30 @@ type CanvasDramaSidebarProps = {
 };
 
 const CAST_ORDER: Record<DramaCast["kind"], number> = { character: 0, scene: 1, prop: 2 };
+const CAST_TABS = ["character", "scene", "prop"] as const satisfies readonly DramaCast["kind"][];
+
+function moveCastTab(current: DramaCast["kind"], key: string) {
+    if (key === "Home") return CAST_TABS[0];
+    if (key === "End") return CAST_TABS[CAST_TABS.length - 1];
+    if (key !== "ArrowLeft" && key !== "ArrowRight") return null;
+    const direction = key === "ArrowRight" ? 1 : -1;
+    return CAST_TABS[(CAST_TABS.indexOf(current) + direction + CAST_TABS.length) % CAST_TABS.length];
+}
 
 export const CanvasDramaSidebar = memo(function CanvasDramaSidebar({ summary, cast, presence, busyKey, onProjectCast, onProjectSegment, onProjectEpisode, onProjectFinal }: CanvasDramaSidebarProps) {
     const [collapsed, setCollapsed] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [activeCastKind, setActiveCastKind] = useState<DramaCast["kind"]>("character");
+    const [castSearch, setCastSearch] = useState("");
     const dramaId = summary.project.id;
     const studioPath = `/projects/${encodeURIComponent(dramaId)}`;
     const orderedCast = useMemo(() => [...(cast || [])].sort((left, right) => CAST_ORDER[left.kind] - CAST_ORDER[right.kind] || left.position - right.position), [cast]);
+    const search = castSearch.trim().toLocaleLowerCase();
+    const visibleCast = useMemo(
+        () => orderedCast.filter((item) => item.kind === activeCastKind && (!search || [item.name, item.lookName, item.aliasesJson].some((value) => value?.toLocaleLowerCase().includes(search)))),
+        [activeCastKind, orderedCast, search],
+    );
+    const kindCount = orderedCast.filter((item) => item.kind === activeCastKind).length;
     const { production } = summary;
 
     if (collapsed) {
@@ -67,10 +84,50 @@ export const CanvasDramaSidebar = memo(function CanvasDramaSidebar({ summary, ca
                         <ImageIcon className="size-3.5" />
                         设定 <span className="tabular-nums text-foreground/32">{orderedCast.length}</span>
                     </h2>
-                    <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5 px-2">
+                    <div className="canvas-drama-cast-tabs mx-2 mb-1 grid grid-cols-3 gap-0.5 rounded-[var(--r-md)] p-0.5" role="tablist" aria-label="设定类型">
+                        {CAST_TABS.map((kind) => {
+                            const count = orderedCast.filter((item) => item.kind === kind).length;
+                            return (
+                                <button
+                                    key={kind}
+                                    type="button"
+                                    role="tab"
+                                    id={`canvas-drama-cast-tab-${kind}`}
+                                    aria-selected={activeCastKind === kind}
+                                    aria-controls="canvas-drama-cast-panel"
+                                    tabIndex={activeCastKind === kind ? 0 : -1}
+                                    className="canvas-drama-cast-tab flex h-7 min-w-0 items-center justify-center gap-1 rounded-[var(--r-sm)] px-1 text-[var(--fs-micro)] font-medium"
+                                    onClick={() => setActiveCastKind(kind)}
+                                    onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+                                        const next = moveCastTab(kind, event.key);
+                                        if (!next) return;
+                                        event.preventDefault();
+                                        setActiveCastKind(next);
+                                        event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#canvas-drama-cast-tab-${next}`)?.focus();
+                                    }}
+                                >
+                                    <span>{DRAMA_CAST_KIND_LABEL[kind]}</span>
+                                    <span className="tabular-nums opacity-50">{count}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <label className="relative mx-2 mb-1 block">
+                        <Search aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-foreground/40" />
+                        <input
+                            type="search"
+                            aria-label="搜索设定"
+                            placeholder={`搜索${DRAMA_CAST_KIND_LABEL[activeCastKind]}设定`}
+                            value={castSearch}
+                            onChange={(event) => setCastSearch(event.target.value)}
+                            className="canvas-drama-cast-search h-8 w-full rounded-[var(--r-md)] border border-border bg-transparent pl-7 pr-2 text-xs text-foreground outline-none placeholder:text-foreground/35 focus-visible:border-[var(--workspace-accent)]"
+                        />
+                    </label>
+                    <div id="canvas-drama-cast-panel" role="tabpanel" aria-labelledby={`canvas-drama-cast-tab-${activeCastKind}`} className="grid grid-cols-[minmax(0,1fr)] gap-0.5 px-2">
                         {cast === undefined ? <SidebarNote>正在读取设定…</SidebarNote> : null}
                         {cast && !orderedCast.length ? <SidebarNote>作品圣经完成后会出现角色、场景与道具</SidebarNote> : null}
-                        {orderedCast.map((item) => {
+                        {cast && orderedCast.length > 0 && !visibleCast.length ? <SidebarNote>{kindCount ? `没有匹配的${DRAMA_CAST_KIND_LABEL[activeCastKind]}设定` : `还没有${DRAMA_CAST_KIND_LABEL[activeCastKind]}设定`}</SidebarNote> : null}
+                        {visibleCast.map((item) => {
                             const placed = presence.cast.has(item.id);
                             const busy = busyKey === `cast:${item.id}`;
                             return (
