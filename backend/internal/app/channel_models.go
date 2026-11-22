@@ -152,6 +152,19 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
 	}
+	channel, err := s.repo.AdminSystemChannel(channelID)
+	if err != nil {
+		return nil, err
+	}
+	item, err := s.saveChannelModel(s.repo, actor, channel, id, req)
+	if err == nil {
+		s.invalidateRouteCatalog()
+	}
+	return item, err
+}
+
+func (s *Service) saveChannelModel(repo *repository.Repository, actor *model.User, channel *model.ModelChannel, id string, req ChannelModelRequest) (*model.ChannelModel, error) {
+	channelID := channel.ID
 	channelLabel := strings.TrimSpace(req.ChannelLabel)
 	tags, err := normalizeChannelModelTags(req.Tags)
 	if err != nil {
@@ -161,16 +174,15 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 	if len([]rune(description)) > 500 {
 		return nil, BadAuthRequest("模型描述不能超过 500 字")
 	}
-	channel, err := s.repo.AdminSystemChannel(channelID)
-	if err != nil {
-		return nil, err
+	if channel.APIFormat == chatGPTPlanFormat && channel.UserID != actor.ID {
+		return nil, Forbidden("只有授权者本人可以编辑 ChatGPT 方案模型")
 	}
 	if channel.APIFormat == chatGPTPlanFormat && channel.UserID != actor.ID {
 		return nil, Forbidden("只有授权者本人可以编辑 ChatGPT 方案模型")
 	}
 	item := &model.ChannelModel{ChannelID: channelID, Enabled: true, PriceVersion: 1, PriceCurrency: model.PriceCurrencyCredits}
 	if id != "" {
-		item, err = s.repo.ChannelModelByID(channelID, id)
+		item, err = repo.ChannelModelByID(channelID, id)
 		if err != nil {
 			return nil, err
 		}
@@ -191,7 +203,7 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		return nil, BadAuthRequest("渠道展示名不能超过 80 字")
 	}
 	// 先检查同渠道重复模型，避免无关能力校验或生成无用序列号掩盖真正的冲突。
-	conflict, conflictErr := s.repo.ChannelModelByKeyIncludingDisabled(channelID, modelKey)
+	conflict, conflictErr := repo.ChannelModelByKeyIncludingDisabled(channelID, modelKey)
 	if conflictErr != nil && !errors.Is(conflictErr, gorm.ErrRecordNotFound) {
 		return nil, conflictErr
 	}
@@ -208,7 +220,7 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		}
 		req.CapabilityConfig = validated
 	}
-	tiers, err := s.normalizeChannelModelPriceTiers(req, capability, protocol, providerModelKey)
+	tiers, err := normalizeChannelModelPriceTiersWithIDs(req, capability, protocol, providerModelKey, repo.NextPrefixedID)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +237,7 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		previousProtocol = item.Protocol
 		item.PriceVersion++
 	} else {
-		item.ID, err = s.repo.NextPrefixedID("MODEL")
+		item.ID, err = repo.NextPrefixedID("MODEL")
 		if err != nil {
 			return nil, err
 		}
@@ -287,7 +299,7 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		return nil, err
 	}
 	// 渠道模型及所有价格档必须同时落库，不能出现“能力已开放但规格价格尚未更新”的窗口。
-	if err := s.repo.Transaction(func(repo *repository.Repository) error {
+	if err := repo.Transaction(func(repo *repository.Repository) error {
 		if channel.WebsiteID != "" {
 			if _, err := repo.LockChannelWebsite(channel.WebsiteID); err != nil {
 				return err
@@ -296,7 +308,13 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		if err := repo.LockSystemChannelConfiguration([]string{channel.ID}); err != nil {
 			return err
 		}
-		currentChannel, err := repo.AdminSystemChannel(channel.ID)
+		var currentChannel *model.ModelChannel
+		var err error
+		if channel.APIFormat == chatGPTPlanFormat {
+			currentChannel, err = repo.SystemChannel(channel.ID)
+		} else {
+			currentChannel, err = repo.AdminSystemChannel(channel.ID)
+		}
 		if err != nil {
 			return err
 		}
@@ -310,7 +328,7 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		if err := repo.SyncChannelModelNames(channel.ID, time.Now()); err != nil {
 			return err
 		}
-		if previousProtocol != item.Protocol && (req.ProtocolSelectionExplicit == nil || *req.ProtocolSelectionExplicit) {
+		if channel.APIFormat != chatGPTPlanFormat && previousProtocol != item.Protocol && (req.ProtocolSelectionExplicit == nil || *req.ProtocolSelectionExplicit) {
 			return repo.RecordChannelProtocolSelection(channel.WebsiteID, actor.ID, item)
 		}
 		return nil
@@ -320,7 +338,6 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		}
 		return nil, err
 	}
-	s.invalidateRouteCatalog()
 	return item, nil
 }
 

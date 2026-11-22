@@ -21,6 +21,9 @@ func (s *Service) PublicSystemChannels() ([]PublicModelChannel, error) {
 	}
 	result := make([]PublicModelChannel, 0, len(channels))
 	for _, channel := range channels {
+		if channel.APIFormat == chatGPTPlanFormat {
+			continue
+		}
 		items, itemErr := s.repo.ChannelModels(channel.ID, false)
 		if itemErr != nil {
 			return nil, itemErr

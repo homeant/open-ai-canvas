@@ -54,6 +54,13 @@ Schema 115 新增 `drama_audio_checks`，只追加保存明确音轨版本、片
 | `projects.external_request_hash` | MCP 短剧建档使用用户及幂等键推导稳定项目 ID，并核对请求指纹 |
 
 登录 Cookie 与外部 Bearer 凭证互不替代。账号禁用或凭证撤销后不再允许 MCP 请求；资源和任务仍按原用户归属校验。远程访问须单独配置 `CANVAS_MCP_PUBLIC_ORIGIN`，不能用模型访问资源的 `CANVAS_PUBLIC_BASE_URL` 代替；开放测试可显式使用 HTTP，正式环境使用 HTTPS。
+## ChatGPT 个人授权存储
+
+复用现有 `system_settings`，无需新增表或 Schema 迁移。`feature_availability.chatGPTPlanEnabled` 默认 `false`，仅管理员可修改。每个用户使用独立的 `chatgpt_plan:<用户 ID 的 SHA-256>` 键；`value_json` 仅含 `ciphertext`，系统设置密钥加密后的内容包括归属用户、个人渠道、注册客户端、主机标识、账号信息、OAuth 令牌和待完成授权标识。读取时再次校验密文中的归属，更新使用旧密文条件写入，阻止跨实例的旧刷新或回调覆盖较新的断开状态。
+
+个人渠道复用 `model_channels` 与 `channel_models`，`api_format=chatgpt-plan`、`user_id` 为授权者，密钥字段保持空；不绑定共享网站。模型仅本人可见和调用，个人方案模型价格明确为 0。旧的单份 `chatgpt_plan_connection` 不被新实现读取或迁移。旧部署应先断开旧连接再升级，避免残留旧远端授权。
+
+完整模型勾选列表在渠道配置事务中保存。取消勾选将对应 `channel_models.enabled` 设为 false，保留模型 ID 和价格档供历史任务引用；再次勾选复用原记录。`GET /chatgpt-plan` 的已选模型列表和模型目录的 `personal` 标记均为读模型，不增加数据库字段。
 
 ## 模型请求插件发行版（Schema 109）
 

@@ -1,24 +1,24 @@
 import { http } from "./request";
 
-export type ChatGPTPlanStatus = { connected: boolean; email?: string; channelId?: string };
-export type ChatGPTPlanModel = { slug: string; displayName: string };
+export type ChatGPTPlanStatus = { enabled: boolean; connected: boolean; selectedModelSlugs: string[]; email?: string; channelId?: string };
+export type ChatGPTPlanModel = { slug: string; displayName: string; selected: boolean; available: boolean };
 
-export function getChatGPTPlanStatus() {
-    return http.get<ChatGPTPlanStatus>("/admin/chatgpt-plan");
+export function getChatGPTPlanStatus(signal?: AbortSignal) {
+    return http.get<ChatGPTPlanStatus>("/chatgpt-plan", { signal });
 }
 
 export function startChatGPTPlanConnection() {
-    return http.post<{ authorizationUrl: string }>("/admin/chatgpt-plan/start");
+    return http.post<{ authorizationUrl: string }>("/chatgpt-plan/start");
 }
 
 export function disconnectChatGPTPlan() {
-    return http.post<{ revocationConfirmed: boolean }>("/admin/chatgpt-plan/disconnect");
+    return http.post<{ revocationConfirmed: boolean }>("/chatgpt-plan/disconnect");
 }
 
-export function listChatGPTPlanModels() {
-    return http.get<{ models: ChatGPTPlanModel[] }>("/admin/chatgpt-plan/models");
+export function listChatGPTPlanModels(signal?: AbortSignal) {
+    return http.get<{ models: ChatGPTPlanModel[] }>("/chatgpt-plan/models", { signal });
 }
 
-export function addChatGPTPlanModel(slug: string) {
-    return http.post<{ model: { id: string } }>("/admin/chatgpt-plan/models", { slug });
+export function saveChatGPTPlanModels(slugs: string[]) {
+    return http.put<{ saved: boolean }>("/chatgpt-plan/models", { slugs });
 }

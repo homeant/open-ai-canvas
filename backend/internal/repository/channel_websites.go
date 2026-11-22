@@ -14,20 +14,20 @@ var ErrWebsiteNotEmpty = errors.New("网站仍有 Key 分组，请先删除或�
 
 func (r *Repository) ChannelWebsites() ([]model.ChannelWebsite, error) {
 	var rows []model.ChannelWebsite
-	err := r.db.Where("scope = ?", model.ChannelScopeSystem).Order("created_at, id").Find(&rows).Error
+	err := r.db.Where("scope = ? AND api_format <> ?", model.ChannelScopeSystem, model.ChatGPTPlanAPIFormat).Order("created_at, id").Find(&rows).Error
 	return rows, err
 }
 
 func (r *Repository) ChannelWebsite(id string) (*model.ChannelWebsite, error) {
 	var row model.ChannelWebsite
-	err := r.db.Where("id = ? AND scope = ?", id, model.ChannelScopeSystem).First(&row).Error
+	err := r.db.Where("id = ? AND scope = ? AND api_format <> ?", id, model.ChannelScopeSystem, model.ChatGPTPlanAPIFormat).First(&row).Error
 	return &row, err
 }
 
 // Always take website locks before channel locks. New keys and connection edits
 // serialize on the same row, so a group cannot join using an obsolete template.
 func (r *Repository) LockChannelWebsite(id string) (*model.ChannelWebsite, error) {
-	query := r.db.Model(&model.ChannelWebsite{}).Where("id = ? AND scope = ?", id, model.ChannelScopeSystem)
+	query := r.db.Model(&model.ChannelWebsite{}).Where("id = ? AND scope = ? AND api_format <> ?", id, model.ChannelScopeSystem, model.ChatGPTPlanAPIFormat)
 	if r.Dialect() == "sqlite" {
 		result := query.UpdateColumn("id", gorm.Expr("id"))
 		if result.Error != nil {
@@ -45,7 +45,7 @@ func (r *Repository) LockChannelWebsite(id string) (*model.ChannelWebsite, error
 
 func (r *Repository) WebsiteChannels(id string) ([]model.ModelChannel, error) {
 	var rows []model.ModelChannel
-	err := r.db.Where("website_id = ? AND scope = ?", id, model.ChannelScopeSystem).Order("id").Find(&rows).Error
+	err := r.db.Where("website_id = ? AND scope = ? AND api_format <> ?", id, model.ChannelScopeSystem, model.ChatGPTPlanAPIFormat).Order("id").Find(&rows).Error
 	return rows, err
 }
 

@@ -62,7 +62,7 @@ func (r *Repository) CatalogProviderChannelCounts() (map[string]int64, error) {
 func (r *Repository) AdminSystemChannels(keyword string, status string, limit int, offset int) ([]model.ModelChannel, int64, error) {
 	var channels []model.ModelChannel
 	var total int64
-	query := r.db.Model(&model.ModelChannel{}).Where("scope = ?", model.ChannelScopeSystem)
+	query := r.db.Model(&model.ModelChannel{}).Where("scope = ? AND api_format <> ?", model.ChannelScopeSystem, model.ChatGPTPlanAPIFormat)
 	if value := strings.TrimSpace(keyword); value != "" {
 		pattern := "%" + strings.ToLower(value) + "%"
 		query = query.Where("lower(name) LIKE ? OR lower(base_url) LIKE ?", pattern, pattern)
@@ -83,7 +83,7 @@ func (r *Repository) AdminSystemChannels(keyword string, status string, limit in
 
 func (r *Repository) AdminSystemChannelReferences() ([]model.ModelChannel, error) {
 	var channels []model.ModelChannel
-	err := r.db.Select("id", "name", "enabled").Where("scope = ?", model.ChannelScopeSystem).Order("created_at asc").Find(&channels).Error
+	err := r.db.Select("id", "name", "enabled").Where("scope = ? AND api_format <> ?", model.ChannelScopeSystem, model.ChatGPTPlanAPIFormat).Order("created_at asc").Find(&channels).Error
 	return channels, err
 }
 
@@ -97,7 +97,7 @@ func (r *Repository) SystemChannel(id string) (*model.ModelChannel, error) {
 
 func (r *Repository) AdminSystemChannel(id string) (*model.ModelChannel, error) {
 	var channel model.ModelChannel
-	if err := r.db.First(&channel, "id = ? AND scope = ?", id, model.ChannelScopeSystem).Error; err != nil {
+	if err := r.db.First(&channel, "id = ? AND scope = ? AND api_format <> ?", id, model.ChannelScopeSystem, model.ChatGPTPlanAPIFormat).Error; err != nil {
 		return nil, err
 	}
 	return &channel, nil
@@ -159,6 +159,25 @@ func (r *Repository) SystemSettingOptional(key string) (*model.SystemSetting, er
 
 func (r *Repository) SaveSystemSetting(setting *model.SystemSetting) error {
 	return r.db.Save(setting).Error
+}
+
+// CompareAndSwapSystemSetting prevents a delayed token refresh or callback from
+// restoring credentials cleared by a newer request on another instance.
+func (r *Repository) CompareAndSwapSystemSetting(setting *model.SystemSetting, previousJSON string) error {
+	var result *gorm.DB
+	if previousJSON == "" {
+		result = r.db.Clauses(clause.OnConflict{DoNothing: true}).Create(setting)
+	} else {
+		result = r.db.Model(&model.SystemSetting{}).Where("key = ? AND value_json = ?", setting.Key, previousJSON).
+			Updates(map[string]any{"value_json": setting.ValueJSON, "updated_by": setting.UpdatedBy, "updated_at": time.Now()})
+	}
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrTaskStateConflict
+	}
+	return nil
 }
 
 func (r *Repository) SystemSettingsWithPrefix(prefix string, limit int) ([]model.SystemSetting, error) {

@@ -39,8 +39,7 @@ type userGroupState struct {
 }
 
 type userGroupSnapshot struct {
-	byCode            map[string]*resolvedUserGroup
-	chatGPTPlanOwners map[string]string
+	byCode map[string]*resolvedUserGroup
 }
 
 type resolvedUserGroup struct {
@@ -52,10 +51,11 @@ type resolvedUserGroup struct {
 // userGroupAccess 是一次请求的分组上下文。bypassVisibility 只放开渠道可见性（管理员和内部能力探测），
 // 价格仍按 group 计算。
 type userGroupAccess struct {
-	userID            string
-	group             *resolvedUserGroup
-	bypassVisibility  bool
-	chatGPTPlanOwners map[string]string
+	userID             string
+	group              *resolvedUserGroup
+	bypassVisibility   bool
+	chatGPTPlanOwners  map[string]string
+	chatGPTPlanEnabled bool
 }
 
 // UserGroupView 是管理端分组读模型。
@@ -165,11 +165,7 @@ func (s *Service) userGroupSnapshot() (*userGroupSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	owners, err := s.repo.SystemChannelOwnersByAPIFormat(chatGPTPlanFormat)
-	if err != nil {
-		return nil, err
-	}
-	snapshot := &userGroupSnapshot{byCode: make(map[string]*resolvedUserGroup, len(groups)), chatGPTPlanOwners: owners}
+	snapshot := &userGroupSnapshot{byCode: make(map[string]*resolvedUserGroup, len(groups))}
 	byID := make(map[string]*resolvedUserGroup, len(groups))
 	for _, group := range groups {
 		overrides, decodeErr := decodeUserGroupOverrides(group.ModelOverridesJSON)
@@ -245,11 +241,7 @@ func (s *Service) userGroupAccessForUser(user *model.User) (*userGroupAccess, er
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := s.userGroupSnapshot()
-	if err != nil {
-		return nil, err
-	}
-	return &userGroupAccess{userID: user.ID, group: group, bypassVisibility: user.Role == model.UserRoleAdmin, chatGPTPlanOwners: snapshot.chatGPTPlanOwners}, nil
+	return s.withChatGPTPlanAccess(&userGroupAccess{userID: user.ID, group: group, bypassVisibility: user.Role == model.UserRoleAdmin})
 }
 
 // userGroupAccess 按用户 ID 读取分组上下文；账单和任务准入使用它，用户不存在时失败关闭。
@@ -274,19 +266,32 @@ func (s *Service) systemGroupAccess() (*userGroupAccess, error) {
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := s.userGroupSnapshot()
+	return s.withChatGPTPlanAccess(&userGroupAccess{group: group, bypassVisibility: true})
+}
+
+// Personal authorization is read on each request, outside the shared group
+// cache: another instance must not treat a newly connected channel as public.
+func (s *Service) withChatGPTPlanAccess(access *userGroupAccess) (*userGroupAccess, error) {
+	owners, err := s.repo.SystemChannelOwnersByAPIFormat(chatGPTPlanFormat)
 	if err != nil {
 		return nil, err
 	}
-	return &userGroupAccess{group: group, bypassVisibility: true, chatGPTPlanOwners: snapshot.chatGPTPlanOwners}, nil
+	access.chatGPTPlanOwners = owners
+	if len(owners) > 0 {
+		access.chatGPTPlanEnabled, err = s.FeatureEnabled(FeatureChatGPTPlan)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return access, nil
 }
 
 func (a *userGroupAccess) allowsChannel(channelID string) bool {
 	if a == nil || a.group == nil {
 		return false
 	}
-	if ownerID := a.chatGPTPlanOwners[strings.TrimSpace(channelID)]; ownerID != "" && a.userID != ownerID {
-		return false
+	if ownerID, private := a.chatGPTPlanOwners[strings.TrimSpace(channelID)]; private {
+		return a.chatGPTPlanEnabled && ownerID != "" && a.userID == ownerID
 	}
 	if a.bypassVisibility || a.group.AllChannels {
 		return true

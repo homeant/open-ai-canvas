@@ -24,6 +24,11 @@ description: 从产品功能快速定位主要代码入口
 - 镜头场景／角色／道具绑定与段级图片覆盖在 `app/drama_mcp_references.go`；`drama_mcp_preflight.go` 明确区分镜头绑定、实际送图和仅文字设定。
 - 全集分镜／对白／音轨时窗与节奏 dryRun：`handler/external_mcp_drama_timing.go`、`app/drama_timing.go`、`drama_timing_preview.go`；`repository/drama_timing.go` 在一致的只读快照内读取分镜、段和音轨检查，不写修改回执或任务。
 - 候选稿与视频快照继续走实际调度：`app/drama_orchestrator.go`、`drama_segment_video.go`；结构化独白进入 `production/segment_prompt.go` 和 `segment_writer.go`。媒体流实测复用 `app/media_probe.go`，网页声音说明在 `pages/projects/studio/segment-dialog.tsx`。
+## ChatGPT 个人方案授权
+
+- 用户入口：`pages/settings/chatgpt-plan-connection.tsx`、`services/api/chatgpt-plan.ts`；管理员开关位于 `feature-availability-panel.tsx`，由 `internal/platform/feature_availability.go` 持久化，默认关闭。
+- 授权与执行：`handler/chatgpt_plan.go` → `app/chatgpt_plan.go`；按用户加密保存、租约协调及旧密文条件写入。`user_groups.go` 在每次请求读取个人渠道归属，`provider.go` 在执行时核对任务用户与开关，`provider_text*.go` 处理方案请求约束。
+- 边界：当前仅本机浏览器回环授权；专项用例为 `chatgpt_plan_isolation_test.go`。真实上游登录与撤销仍见待测试清单。
 
 ## 团队空间
 

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,11 +21,12 @@ import (
 	"github.com/google/uuid"
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/outbound"
+	"yingce/backend/internal/repository"
 )
 
 const (
-	chatGPTPlanFormat  = "chatgpt-plan"
-	chatGPTPlanSetting = "chatgpt_plan_connection"
+	chatGPTPlanFormat  = model.ChatGPTPlanAPIFormat
+	chatGPTPlanSetting = "chatgpt_plan:"
 	chatGPTPlanAPI     = "https://api.openai.com/v1"
 	chatGPTPlanIssuer  = "https://auth.openai.com"
 	chatGPTPlanToken   = "https://auth.openai.com/api/accounts/oauth/token"
@@ -32,6 +34,8 @@ const (
 )
 
 type chatGPTPlanCredentials struct {
+	AttemptID    string    `json:"attemptId,omitempty"`
+	StoredJSON   string    `json:"-"`
 	OwnerID      string    `json:"ownerId"`
 	ChannelID    string    `json:"channelId"`
 	HostID       string    `json:"hostId"`
@@ -45,18 +49,58 @@ type chatGPTPlanCredentials struct {
 }
 
 type ChatGPTPlanStatus struct {
-	Connected bool   `json:"connected"`
-	Email     string `json:"email,omitempty"`
-	ChannelID string `json:"channelId,omitempty"`
+	SelectedModelSlugs []string `json:"selectedModelSlugs"`
+	Enabled            bool     `json:"enabled"`
+	Connected          bool     `json:"connected"`
+	Email              string   `json:"email,omitempty"`
+	ChannelID          string   `json:"channelId,omitempty"`
 }
 
 type ChatGPTPlanModel struct {
+	Selected    bool   `json:"selected"`
+	Available   bool   `json:"available"`
 	Slug        string `json:"slug"`
 	DisplayName string `json:"displayName"`
 }
 
-func (s *Service) readChatGPTPlanCredentials() (*chatGPTPlanCredentials, error) {
-	setting, err := s.repo.SystemSettingOptional(chatGPTPlanSetting)
+func chatGPTPlanSettingKey(ownerID string) string {
+	digest := sha256.Sum256([]byte(ownerID))
+	return chatGPTPlanSetting + hex.EncodeToString(digest[:])
+}
+func (s *Service) requireChatGPTPlanUser(actor *model.User, requireEnabled bool) error {
+	if actor == nil || strings.TrimSpace(actor.ID) == "" {
+		return Unauthorized("请先登录")
+	}
+	current, err := s.repo.User(actor.ID)
+	if err != nil || current.Status != model.UserStatusActive {
+		return Unauthorized("当前账号不可用")
+	}
+	if requireEnabled {
+		return s.RequireFeature(FeatureChatGPTPlan)
+	}
+	return nil
+}
+func (s *Service) lockChatGPTPlan(ownerID string) (func(), error) {
+	if strings.TrimSpace(ownerID) == "" {
+		return nil, Unauthorized("请先登录")
+	}
+	if s.coordinator == nil {
+		return nil, errors.New("授权协调服务不可用")
+	}
+	lease, acquired, err := s.coordinator.AcquireLease(context.Background(), chatGPTPlanSettingKey(ownerID), 1, 2*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	if !acquired {
+		return nil, BadAuthRequest("ChatGPT 授权正在处理，请稍后重试")
+	}
+	return lease.Release, nil
+}
+func (s *Service) readChatGPTPlanCredentials(ownerID string) (*chatGPTPlanCredentials, error) {
+	if strings.TrimSpace(ownerID) == "" {
+		return nil, Unauthorized("请先登录")
+	}
+	setting, err := s.repo.SystemSettingOptional(chatGPTPlanSettingKey(ownerID))
 	if err != nil || setting == nil {
 		return nil, err
 	}
@@ -74,6 +118,10 @@ func (s *Service) readChatGPTPlanCredentials() (*chatGPTPlanCredentials, error) 
 	if err := json.Unmarshal([]byte(plain), &credentials); err != nil {
 		return nil, errors.New("ChatGPT 授权记录无法读取")
 	}
+	if credentials.OwnerID != ownerID {
+		return nil, Forbidden("ChatGPT 授权归属不匹配")
+	}
+	credentials.StoredJSON = setting.ValueJSON
 	return &credentials, nil
 }
 
@@ -92,21 +140,50 @@ func (s *Service) saveChatGPTPlanCredentials(value *chatGPTPlanCredentials) erro
 	if err != nil {
 		return err
 	}
-	return s.repo.SaveSystemSetting(&model.SystemSetting{Key: chatGPTPlanSetting, ValueJSON: string(encoded), UpdatedBy: value.OwnerID})
+	if strings.TrimSpace(value.OwnerID) == "" {
+		return Unauthorized("请先登录")
+	}
+	if err := s.repo.CompareAndSwapSystemSetting(&model.SystemSetting{Key: chatGPTPlanSettingKey(value.OwnerID), ValueJSON: string(encoded), UpdatedBy: value.OwnerID}, value.StoredJSON); err != nil {
+		return err
+	}
+	value.StoredJSON = string(encoded)
+	return nil
 }
 
 func (s *Service) ChatGPTPlanConnectionStatus(actor *model.User) (*ChatGPTPlanStatus, error) {
-	if err := s.RequireAdmin(actor); err != nil {
+	if err := s.requireChatGPTPlanUser(actor, false); err != nil {
 		return nil, err
 	}
-	credentials, err := s.readChatGPTPlanCredentials()
-	if err != nil || credentials == nil {
-		return &ChatGPTPlanStatus{}, err
+	enabled, err := s.FeatureEnabled(FeatureChatGPTPlan)
+	if err != nil {
+		return nil, err
 	}
-	if credentials.OwnerID != actor.ID {
-		return &ChatGPTPlanStatus{}, nil
+	credentials, err := s.readChatGPTPlanCredentials(actor.ID)
+	if err != nil {
+		return nil, err
 	}
-	return &ChatGPTPlanStatus{Connected: credentials.AccessToken != "" && credentials.RefreshToken != "", Email: credentials.Email, ChannelID: credentials.ChannelID}, nil
+	result := &ChatGPTPlanStatus{Enabled: enabled, SelectedModelSlugs: []string{}}
+	if credentials != nil {
+		result.Connected = credentials.AccessToken != "" && credentials.RefreshToken != ""
+		result.Email, result.ChannelID = credentials.Email, credentials.ChannelID
+		if credentials.ChannelID != "" {
+			channel, err := s.repo.SystemChannel(credentials.ChannelID)
+			if err != nil {
+				return nil, err
+			}
+			if channel.UserID != actor.ID || channel.APIFormat != chatGPTPlanFormat {
+				return nil, Forbidden("ChatGPT 渠道归属不匹配")
+			}
+			items, err := s.repo.ChannelModels(channel.ID, false)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				result.SelectedModelSlugs = append(result.SelectedModelSlugs, item.ModelKey)
+			}
+		}
+	}
+	return result, nil
 }
 
 func randomChatGPTPlanValue() (string, error) {
@@ -118,18 +195,20 @@ func randomChatGPTPlanValue() (string, error) {
 }
 
 func (s *Service) StartChatGPTPlanConnection(actor *model.User) (string, error) {
-	if err := s.RequireAdmin(actor); err != nil {
+	if err := s.requireChatGPTPlanUser(actor, true); err != nil {
 		return "", err
 	}
 	if actor == nil || actor.ID == "" {
 		return "", Unauthorized("请先登录")
 	}
-	previous, err := s.readChatGPTPlanCredentials()
+	unlock, err := s.lockChatGPTPlan(actor.ID)
 	if err != nil {
 		return "", err
 	}
-	if previous != nil && previous.OwnerID != actor.ID {
-		return "", Forbidden("ChatGPT 方案已由另一个管理员连接")
+	defer unlock()
+	previous, err := s.readChatGPTPlanCredentials(actor.ID)
+	if err != nil {
+		return "", err
 	}
 	hostID := ""
 	clientID := "dynamic_agent_client"
@@ -141,10 +220,10 @@ func (s *Service) StartChatGPTPlanConnection(actor *model.User) (string, error) 
 	}
 	if hostID == "" {
 		hostID = "urn:uuid:" + uuid.NewString()
-		pending := &chatGPTPlanCredentials{OwnerID: actor.ID, HostID: hostID}
-		if err := s.saveChatGPTPlanCredentials(pending); err != nil {
-			return "", err
+		if previous == nil {
+			previous = &chatGPTPlanCredentials{OwnerID: actor.ID}
 		}
+		previous.HostID = hostID
 	}
 	state, err := randomChatGPTPlanValue()
 	if err != nil {
@@ -156,6 +235,10 @@ func (s *Service) StartChatGPTPlanConnection(actor *model.User) (string, error) 
 	}
 	verifier, err := randomChatGPTPlanValue()
 	if err != nil {
+		return "", err
+	}
+	previous.AttemptID = state
+	if err := s.saveChatGPTPlanCredentials(previous); err != nil {
 		return "", err
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -188,7 +271,7 @@ func (s *Service) StartChatGPTPlanConnection(actor *model.User) (string, error) 
 		if r.URL.Query().Get("error") == "" && r.URL.Query().Get("code") != "" {
 			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 			defer cancel()
-			if completeErr := s.completeChatGPTPlanConnection(ctx, actor, previous, clientID, hostID, nonce, verifier, redirectURI, r.URL.Query()); completeErr == nil {
+			if completeErr := s.completeChatGPTPlanConnection(ctx, actor, state, clientID, hostID, nonce, verifier, redirectURI, r.URL.Query()); completeErr == nil {
 				message = "ChatGPT 授权成功，请返回影策选择模型。"
 			}
 		}
@@ -210,13 +293,26 @@ type chatGPTPlanTokenResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-func chatGPTPlanTokenRequest(ctx context.Context, form url.Values) (*chatGPTPlanTokenResponse, error) {
+func (s *Service) chatGPTPlanClient(timeout time.Duration) *http.Client {
+	client := s.chatGPTPlanHTTPClient
+	if client == nil {
+		client = outbound.OutboundHTTPClient(timeout)
+	}
+	copy := *client
+	copy.Timeout = timeout
+	copy.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return errors.New("ChatGPT 授权接口不允许重定向")
+	}
+	return &copy
+}
+
+func (s *Service) chatGPTPlanTokenRequest(ctx context.Context, form url.Values) (*chatGPTPlanTokenResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatGPTPlanToken, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	client := outbound.OutboundHTTPClient(30 * time.Second)
+	client := s.chatGPTPlanClient(30 * time.Second)
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("授权接口不允许重定向") }
 	response, err := client.Do(req)
 	if err != nil {
@@ -230,13 +326,16 @@ func chatGPTPlanTokenRequest(ctx context.Context, form url.Values) (*chatGPTPlan
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil {
 		return nil, err
 	}
-	if result.AccessToken == "" || result.RefreshToken == "" || result.ExpiresIn <= 0 {
+	if result.AccessToken == "" || result.ExpiresIn <= 0 {
 		return nil, errors.New("ChatGPT 授权结果缺少令牌或有效期")
 	}
 	return &result, nil
 }
 
-func verifyChatGPTPlanIDToken(ctx context.Context, raw, clientID, nonce string) (string, string, error) {
+func (s *Service) verifyChatGPTPlanIDToken(ctx context.Context, raw, clientID, nonce string) (string, string, error) {
+	client := s.chatGPTPlanClient(30 * time.Second)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("身份接口不允许重定向") }
+	ctx = oidc.ClientContext(ctx, client)
 	provider, err := oidc.NewProvider(ctx, chatGPTPlanIssuer)
 	if err != nil {
 		return "", "", err
@@ -255,7 +354,26 @@ func verifyChatGPTPlanIDToken(ctx context.Context, raw, clientID, nonce string) 
 	return verified.Subject, claims.Email, nil
 }
 
-func (s *Service) completeChatGPTPlanConnection(ctx context.Context, actor *model.User, previous *chatGPTPlanCredentials, clientID, hostID, nonce, verifier, redirectURI string, query url.Values) error {
+func (s *Service) completeChatGPTPlanConnection(ctx context.Context, actor *model.User, attemptID string, clientID, hostID, nonce, verifier, redirectURI string, query url.Values) error {
+	if err := s.requireChatGPTPlanUser(actor, true); err != nil {
+		return err
+	}
+	unlock, err := s.lockChatGPTPlan(actor.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	previous, err := s.readChatGPTPlanCredentials(actor.ID)
+	if err != nil {
+		return err
+	}
+	if previous == nil || previous.AttemptID == "" || previous.AttemptID != attemptID || query.Get("state") != attemptID {
+		return BadAuthRequest("ChatGPT 授权已失效，请重新发起")
+	}
+	previous.AttemptID = ""
+	if err := s.saveChatGPTPlanCredentials(previous); err != nil {
+		return err
+	}
 	issued := query.Get("client_id")
 	if clientID == "dynamic_agent_client" {
 		if issued == "" || issued == clientID {
@@ -265,22 +383,25 @@ func (s *Service) completeChatGPTPlanConnection(ctx context.Context, actor *mode
 	} else if issued != "" && issued != clientID {
 		return errors.New("ChatGPT 客户端不匹配")
 	}
-	token, err := chatGPTPlanTokenRequest(ctx, url.Values{
+	token, err := s.chatGPTPlanTokenRequest(ctx, url.Values{
 		"grant_type": {"authorization_code"}, "client_id": {clientID}, "code": {query.Get("code")},
 		"code_verifier": {verifier}, "redirect_uri": {redirectURI}, "resource": {chatGPTPlanAPI},
 	})
 	if err != nil {
 		return err
 	}
-	if token.IDToken == "" || !strings.Contains(" "+token.Scope+" ", " chatgpt.tokens.use.direct ") {
+	if token.IDToken == "" || token.RefreshToken == "" || !strings.Contains(" "+token.Scope+" ", " chatgpt.tokens.use.direct ") || !strings.Contains(" "+token.Scope+" ", " resource.invoke ") {
 		return errors.New("ChatGPT 未授予方案额度使用权限")
 	}
-	subject, email, err := verifyChatGPTPlanIDToken(ctx, token.IDToken, clientID, nonce)
+	subject, email, err := s.verifyChatGPTPlanIDToken(ctx, token.IDToken, clientID, nonce)
 	if err != nil {
 		return err
 	}
 	if previous != nil && previous.Subject != "" && previous.Subject != subject {
 		return errors.New("ChatGPT 授权账号与原账号不一致")
+	}
+	if err := s.requireChatGPTPlanUser(actor, true); err != nil {
+		return err
 	}
 	channelID := ""
 	if previous != nil {
@@ -292,7 +413,7 @@ func (s *Service) completeChatGPTPlanConnection(ctx context.Context, actor *mode
 			return err
 		}
 	}
-	credentials := &chatGPTPlanCredentials{OwnerID: actor.ID, ChannelID: channelID, HostID: hostID, ClientID: clientID, Subject: subject, Email: email, AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, IDToken: token.IDToken, ExpiresAt: time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)}
+	credentials := &chatGPTPlanCredentials{StoredJSON: previous.StoredJSON, OwnerID: actor.ID, ChannelID: channelID, HostID: hostID, ClientID: clientID, Subject: subject, Email: email, AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, IDToken: token.IDToken, ExpiresAt: time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)}
 	return s.saveChatGPTPlanCredentials(credentials)
 }
 
@@ -306,7 +427,7 @@ func (s *Service) createChatGPTPlanChannel(actor *model.User) (string, error) {
 		return "", err
 	}
 	channel.APIFormat = chatGPTPlanFormat
-	if err := s.saveChannelWithMediaTransport(&channel, actor.ID, nil, true); err != nil {
+	if err := s.repo.Create(&channel); err != nil {
 		return "", err
 	}
 	s.invalidateUserGroups()
@@ -314,9 +435,15 @@ func (s *Service) createChatGPTPlanChannel(actor *model.User) (string, error) {
 }
 
 func (s *Service) chatGPTPlanAccessToken(ownerID string) (string, error) {
-	s.chatGPTPlanMu.Lock()
-	defer s.chatGPTPlanMu.Unlock()
-	credentials, err := s.readChatGPTPlanCredentials()
+	if err := s.requireChatGPTPlanUser(&model.User{ID: ownerID}, true); err != nil {
+		return "", err
+	}
+	unlock, err := s.lockChatGPTPlan(ownerID)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	credentials, err := s.readChatGPTPlanCredentials(ownerID)
 	if err != nil || credentials == nil {
 		return "", errors.New("ChatGPT 方案尚未连接")
 	}
@@ -328,18 +455,21 @@ func (s *Service) chatGPTPlanAccessToken(ownerID string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	token, err := chatGPTPlanTokenRequest(ctx, url.Values{
+	token, err := s.chatGPTPlanTokenRequest(ctx, url.Values{
 		"grant_type": {"refresh_token"}, "client_id": {credentials.ClientID},
 		"refresh_token": {credentials.RefreshToken}, "resource": {chatGPTPlanAPI},
 	})
 	if err != nil {
 		return "", err
 	}
+	if token.RefreshToken == "" {
+		token.RefreshToken = credentials.RefreshToken
+	}
 	credentials.AccessToken = token.AccessToken
 	credentials.RefreshToken = token.RefreshToken
 	credentials.ExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
 	if token.IDToken != "" {
-		subject, _, verifyErr := verifyChatGPTPlanIDToken(ctx, token.IDToken, credentials.ClientID, "")
+		subject, _, verifyErr := s.verifyChatGPTPlanIDToken(ctx, token.IDToken, credentials.ClientID, "")
 		if verifyErr != nil || subject != credentials.Subject {
 			return "", errors.New("ChatGPT 刷新令牌账号不匹配")
 		}
@@ -416,7 +546,7 @@ func prepareChatGPTPlanRequest(body map[string]interface{}) error {
 }
 
 func (s *Service) ListChatGPTPlanModels(ctx context.Context, actor *model.User) ([]ChatGPTPlanModel, error) {
-	if err := s.RequireAdmin(actor); err != nil {
+	if err := s.requireChatGPTPlanUser(actor, true); err != nil {
 		return nil, err
 	}
 	token, err := s.chatGPTPlanAccessToken(actor.ID)
@@ -428,7 +558,7 @@ func (s *Service) ListChatGPTPlanModels(ctx context.Context, actor *model.User) 
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	client := outbound.OutboundHTTPClient(30 * time.Second)
+	client := s.chatGPTPlanClient(30 * time.Second)
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("模型目录不允许重定向") }
 	response, err := client.Do(req)
 	if err != nil {
@@ -448,53 +578,155 @@ func (s *Service) ListChatGPTPlanModels(ctx context.Context, actor *model.User) 
 	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&payload); err != nil {
 		return nil, err
 	}
+	credentials, err := s.readChatGPTPlanCredentials(actor.ID)
+	if err != nil {
+		return nil, err
+	}
+	if credentials == nil || credentials.ChannelID == "" {
+		return nil, Forbidden("请先连接自己的 ChatGPT 账号")
+	}
+	channel, err := s.repo.SystemChannel(credentials.ChannelID)
+	if err != nil {
+		return nil, err
+	}
+	if channel.UserID != actor.ID || channel.APIFormat != chatGPTPlanFormat {
+		return nil, Forbidden("ChatGPT 渠道归属不匹配")
+	}
+	saved, err := s.repo.ChannelModels(channel.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	selected := map[string]bool{}
+	for _, item := range saved {
+		selected[item.ModelKey] = true
+	}
 	result := make([]ChatGPTPlanModel, 0, len(payload.Models))
+	seen := map[string]bool{}
 	for _, item := range payload.Models {
-		if item.Visibility == "list" && item.Slug != "" {
-			result = append(result, ChatGPTPlanModel{Slug: item.Slug, DisplayName: item.DisplayName})
+		if item.Visibility == "list" && item.Slug != "" && !seen[item.Slug] {
+			seen[item.Slug] = true
+			result = append(result, ChatGPTPlanModel{Slug: item.Slug, DisplayName: item.DisplayName, Available: true, Selected: selected[item.Slug]})
+		}
+	}
+	for _, item := range saved {
+		if !seen[item.ModelKey] {
+			result = append(result, ChatGPTPlanModel{Slug: item.ModelKey, DisplayName: item.DisplayName, Selected: true})
 		}
 	}
 	return result, nil
 }
 
-func (s *Service) AddChatGPTPlanModel(ctx context.Context, actor *model.User, slug string) (*model.ChannelModel, error) {
-	if err := s.RequireAdmin(actor); err != nil {
-		return nil, err
+func (s *Service) SaveChatGPTPlanModels(ctx context.Context, actor *model.User, slugs []string) error {
+	if err := s.requireChatGPTPlanUser(actor, true); err != nil {
+		return err
 	}
-	credentials, err := s.readChatGPTPlanCredentials()
-	if err != nil || credentials == nil || credentials.OwnerID != actor.ID || credentials.ChannelID == "" {
-		return nil, Forbidden("请先连接自己的 ChatGPT 账号")
+	if slugs == nil || len(slugs) > 100 {
+		return BadAuthRequest("请提交完整模型勾选列表，最多 100 个")
 	}
-	models, err := s.ListChatGPTPlanModels(ctx, actor)
+	wanted := make(map[string]bool, len(slugs))
+	for _, slug := range slugs {
+		if slug == "" || slug != strings.TrimSpace(slug) || wanted[slug] {
+			return BadAuthRequest("模型标识无效或重复")
+		}
+		wanted[slug] = true
+	}
+	before, err := s.readChatGPTPlanCredentials(actor.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var selected *ChatGPTPlanModel
-	for index := range models {
-		if models[index].Slug == slug {
-			selected = &models[index]
-			break
+	if before == nil || before.ChannelID == "" || before.AccessToken == "" || before.RefreshToken == "" {
+		return Forbidden("请先连接自己的 ChatGPT 账号")
+	}
+	catalog := map[string]ChatGPTPlanModel{}
+	if len(slugs) > 0 {
+		models, err := s.ListChatGPTPlanModels(ctx, actor)
+		if err != nil {
+			return err
+		}
+		for _, item := range models {
+			if item.Available {
+				catalog[item.Slug] = item
+			}
+		}
+		for _, slug := range slugs {
+			if _, ok := catalog[slug]; !ok {
+				return BadAuthRequest("所选模型不在当前 ChatGPT 账号可用目录中")
+			}
 		}
 	}
-	if selected == nil {
-		return nil, BadAuthRequest("该模型不在当前 ChatGPT 账号可用目录中")
+	unlock, err := s.lockChatGPTPlan(actor.ID)
+	if err != nil {
+		return err
 	}
-	enabled := true
-	return s.SaveAdminChannelModel(actor, credentials.ChannelID, "", ChannelModelRequest{
-		ModelKey: slug, ProviderModelKey: slug, DisplayName: firstNonEmpty(selected.DisplayName, slug),
-		Capability: "text", Protocol: string(model.ChannelInterfaceOpenAIResponse),
-		CapabilityConfig: DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceOpenAIResponse), slug),
-		BillingMode:      "fixed_request", PriceConfigured: true, Enabled: &enabled,
+	defer unlock()
+	current, err := s.readChatGPTPlanCredentials(actor.ID)
+	if err != nil {
+		return err
+	}
+	if current == nil || current.ChannelID != before.ChannelID || current.Subject != before.Subject || current.AccessToken == "" || current.RefreshToken == "" {
+		return Forbidden("授权已变化，请刷新后重试")
+	}
+	if err := s.requireChatGPTPlanUser(actor, true); err != nil {
+		return err
+	}
+	err = s.repo.Transaction(func(repo *repository.Repository) error {
+		if err := repo.LockSystemChannelConfiguration([]string{current.ChannelID}); err != nil {
+			return err
+		}
+		channel, err := repo.SystemChannel(current.ChannelID)
+		if err != nil {
+			return err
+		}
+		if channel.UserID != actor.ID || channel.APIFormat != chatGPTPlanFormat {
+			return Forbidden("ChatGPT 渠道归属不匹配")
+		}
+		existing, err := repo.ChannelModels(channel.ID, true)
+		if err != nil {
+			return err
+		}
+		bySlug := map[string]bool{}
+		for _, item := range existing {
+			bySlug[item.ModelKey] = true
+			if item.Enabled != wanted[item.ModelKey] {
+				if err := repo.SetChannelModelEnabled(channel.ID, item.ID, wanted[item.ModelKey]); err != nil {
+					return err
+				}
+			}
+		}
+		enabled := true
+		for _, slug := range slugs {
+			if bySlug[slug] {
+				continue
+			}
+			selected := catalog[slug]
+			if _, err := s.saveChannelModel(repo, actor, channel, "", ChannelModelRequest{
+				ModelKey: slug, ProviderModelKey: slug, DisplayName: firstNonEmpty(selected.DisplayName, slug),
+				Capability: "text", Protocol: string(model.ChannelInterfaceOpenAIResponse),
+				CapabilityConfig: DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceOpenAIResponse), slug),
+				BillingMode:      "fixed_request", PriceConfigured: true, Enabled: &enabled,
+			}); err != nil {
+				return err
+			}
+		}
+		return repo.SyncChannelModelNames(channel.ID, time.Now())
 	})
+	if err != nil {
+		return err
+	}
+	s.invalidateRouteCatalog()
+	return nil
 }
 
 func (s *Service) DisconnectChatGPTPlan(actor *model.User) (bool, error) {
-	if err := s.RequireAdmin(actor); err != nil {
+	if err := s.requireChatGPTPlanUser(actor, false); err != nil {
 		return false, err
 	}
-	s.chatGPTPlanMu.Lock()
-	defer s.chatGPTPlanMu.Unlock()
-	credentials, err := s.readChatGPTPlanCredentials()
+	unlock, err := s.lockChatGPTPlan(actor.ID)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	credentials, err := s.readChatGPTPlanCredentials(actor.ID)
 	if err != nil || credentials == nil {
 		return false, err
 	}
@@ -505,8 +737,9 @@ func (s *Service) DisconnectChatGPTPlan(actor *model.User) (bool, error) {
 	if credentials.RefreshToken != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		confirmed = revokeChatGPTPlanSession(ctx, credentials.ClientID, credentials.RefreshToken)
+		confirmed = s.revokeChatGPTPlanSession(ctx, credentials.ClientID, credentials.RefreshToken)
 	}
+	credentials.AttemptID = ""
 	credentials.AccessToken = ""
 	credentials.RefreshToken = ""
 	credentials.IDToken = ""
@@ -528,8 +761,9 @@ func (s *Service) DisconnectChatGPTPlan(actor *model.User) (bool, error) {
 	return confirmed, nil
 }
 
-func revokeChatGPTPlanSession(ctx context.Context, clientID, refreshToken string) bool {
-	client := outbound.OutboundHTTPClient(15 * time.Second)
+func (s *Service) revokeChatGPTPlanSession(ctx context.Context, clientID, refreshToken string) bool {
+	client := s.chatGPTPlanClient(15 * time.Second)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("撤销接口不允许重定向") }
 	discovery, err := http.NewRequestWithContext(ctx, http.MethodGet, chatGPTPlanIssuer+"/.well-known/openid-configuration", nil)
 	if err != nil {
 		return false

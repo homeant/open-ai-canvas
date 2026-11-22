@@ -41,8 +41,16 @@ func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
 		"GET /api/resources":                                                false,
 		"GET /api/skills/presets":                                           false,
 		"GET /api/agent/skills/usage":                                       false,
+		"GET /api/chatgpt-plan":                                             false,
+		"POST /api/chatgpt-plan/start":                                      false,
+		"GET /api/chatgpt-plan/models":                                      false,
+		"PUT /api/chatgpt-plan/models":                                      false,
+		"POST /api/chatgpt-plan/disconnect":                                 false,
 	}
 	for _, route := range router.Routes() {
+		if strings.HasPrefix(route.Path, "/api/admin/chatgpt-plan") {
+			t.Errorf("personal authorization route remains under public administration: %s", route.Path)
+		}
 		key := route.Method + " " + route.Path
 		if _, exists := wanted[key]; exists {
 			wanted[key] = true
@@ -58,6 +66,9 @@ func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/openapi.yaml", nil))
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "openapi: 3.0.3") || !strings.Contains(recorder.Body.String(), "url: /api") {
 		t.Fatalf("openapi.yaml status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "/admin/chatgpt-plan") || !strings.Contains(recorder.Body.String(), "  /chatgpt-plan:") {
+		t.Fatal("OpenAPI must publish personal authorization routes and remove the old admin contract")
 	}
 
 	recorder = httptest.NewRecorder()

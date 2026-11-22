@@ -29,7 +29,7 @@ func TestChatGPTPlanDeclarativeTextForcesPlanRequest(t *testing.T) {
 		if _, ok := body["input"].([]interface{}); !ok {
 			t.Errorf("input type = %T, want array", body["input"])
 		}
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"delta\":\"ok\"}\n\nevent: response.completed\ndata: {\"response\":null}\n\n"))
 	}))
 	defer server.Close()
@@ -83,7 +83,7 @@ func TestPrepareChatGPTPlanRequestUsesPlanContract(t *testing.T) {
 func TestChatGPTPlanChannelIsOwnerOnly(t *testing.T) {
 	owner := "owner"
 	group := &resolvedUserGroup{UserGroup: model.UserGroup{AllChannels: true}}
-	access := &userGroupAccess{userID: owner, group: group, bypassVisibility: true, chatGPTPlanOwners: map[string]string{"plan": owner}}
+	access := &userGroupAccess{userID: owner, group: group, bypassVisibility: true, chatGPTPlanEnabled: true, chatGPTPlanOwners: map[string]string{"plan": owner}}
 	if !access.allowsChannel("plan") {
 		t.Fatal("owner should be allowed")
 	}

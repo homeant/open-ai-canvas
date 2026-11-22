@@ -24,7 +24,6 @@ import { Select } from "@/components/ui/base/select";
 import { listAdminChannelWebsites, deleteAdminChannelWebsite, type ChannelWebsite } from "@/services/api/channel-websites";
 import { ChannelWebsiteDialog } from "./channel-website-dialog";
 import { useChannelKeySort } from "./use-channel-key-sort";
-import { ChatGPTPlanConnection } from "./chatgpt-plan-connection";
 
 type ChannelFormValues = {
     apiFormat?: ModelChannel["apiFormat"];
@@ -425,12 +424,6 @@ export default function ChannelsPage() {
                     { label: "按网站", value: "channels" },
                     { label: "全部模型", value: "models" },
                 ]}
-            />
-            <ChatGPTPlanConnection
-                onChanged={async () => {
-                    await syncChannels();
-                    await reload();
-                }}
             />
             {view === "models" ? (
                 <AllChannelModelsPanel channels={channels} health={health} healthLoading={healthLoading} onChanged={syncChannels} onOpenChannel={(channelId) => updateUrl(openChannelWorkspace(channelId))} />

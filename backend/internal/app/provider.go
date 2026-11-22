@@ -460,11 +460,14 @@ func (s *Service) resolveProviderConfig(config providerConfig, task *model.Task)
 	config.BaseURL = channel.BaseURL
 	config.APIKey = channel.APIKey
 	if channel.APIFormat == chatGPTPlanFormat {
+		if task == nil || task.UserID == "" || task.UserID != channel.UserID {
+			return providerConfig{}, Forbidden("只有授权者本人可以使用 ChatGPT 方案")
+		}
 		if channelModel.Protocol != model.ChannelInterfaceOpenAIResponse || channelModel.Capability != "text" {
 			return providerConfig{}, InvalidModelSelection("ChatGPT 方案只支持 Responses 文本模型")
 		}
 		config.APIFormat = chatGPTPlanFormat
-		config.APIKey, err = s.chatGPTPlanAccessToken(channel.UserID)
+		config.APIKey, err = s.chatGPTPlanAccessToken(task.UserID)
 		if err != nil {
 			return providerConfig{}, err
 		}
