@@ -246,7 +246,11 @@ export function validateChannelModelPrices(values: Pick<ChannelModelFormValues, 
                 (image?.quality.supported !== false && specific(tier.quality)) ||
                 specific(tier.resolution) ||
                 specific(tier.size);
-            if (!(specific(tier.operation) || (capability === "image" && imageCondition) || (capability === "video" && (specific(tier.resolution) || (values.capabilityConfig?.video?.processing && specific(tier.fpsBand))))))
+            if (!(
+                specific(tier.operation) ||
+                (capability === "image" && imageCondition) ||
+                (capability === "video" && (specific(tier.resolution) || tier.videoSeconds > 0 || tier.imageCount > 0 || specific(tier.videoGenerateAudio) || (values.capabilityConfig?.video?.processing && specific(tier.fpsBand))))
+            ))
                 fail("规格价格至少需要一个匹配条件；统一价格请选择默认价格");
         }
         const prices =

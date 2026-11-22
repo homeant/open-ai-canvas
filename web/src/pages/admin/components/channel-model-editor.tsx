@@ -308,6 +308,11 @@ export function ChannelModelEditor({
                         <small id={enabledHintId}>保存后生效</small>
                     </label>
                     <div className="admin-model-editor-footer-primary">
+                        {selectorIssues.length > 0 && (
+                            <Button type="link" disabled={busy} onClick={() => setActiveSection("pricing")}>
+                                查看价格配置问题（{selectorIssues.length}）
+                            </Button>
+                        )}
                         <Button
                             type="text"
                             icon={<FlaskConical className="size-4" />}

@@ -70,14 +70,15 @@ describe("channel model price tier defaults", () => {
 
         expect(priceTierToForm(base).matchMode).toBe("default");
         expect(priceTierToForm({ ...base, selector: { quality: "2k" } }).matchMode).toBe("advanced");
-        expect(priceTierToForm({ ...base, selector: { videoGenerateAudio: "false" } })).toMatchObject({ matchMode: "default", videoGenerateAudio: "false" });
+        expect(priceTierToForm({ ...base, selector: { videoGenerateAudio: "false" } })).toMatchObject({ matchMode: "advanced", videoGenerateAudio: "false" });
+        expect(priceTierToForm({ ...base, selector: { videoSeconds: "5", imageCount: "6" } })).toMatchObject({ matchMode: "advanced", videoSeconds: 5, imageCount: 6 });
     });
 
-    test("keeps video matching limited to operation and resolution", () => {
+    test("preserves explicit video duration, reference count and audio conditions", () => {
         for (const videoGenerateAudio of ["true", "false"]) {
             const tier = { ...defaultPriceTier("advanced"), operation: "image_to_video", resolution: "1080p", videoSeconds: 10, videoGenerateAudio, imageCount: 2 };
-            expect(skuSelectorFromForm("video", tier)).toEqual({ operation: "image_to_video", vquality: "1080p" });
-            expect(priceTierVideoSecondsFromForm("video", tier)).toBe(0);
+            expect(skuSelectorFromForm("video", tier)).toEqual({ operation: "image_to_video", vquality: "1080p", videoSeconds: "10", videoGenerateAudio, imageCount: "2" });
+            expect(priceTierVideoSecondsFromForm("video", tier)).toBe(10);
             expect(skuSelectorFromForm("image", { ...defaultPriceTier("advanced"), videoSeconds: 10, videoGenerateAudio, imageCount: 2 })).toEqual({});
         }
         expect(skuSelectorFromForm("video", defaultPriceTier("advanced"))).toEqual({});
@@ -85,7 +86,14 @@ describe("channel model price tier defaults", () => {
 
     test("video Token writes discard hidden text prices without changing the configured video rate", () => {
         const tier = { ...defaultPriceTier("advanced"), billingMode: "token" as const, videoGenerateAudio: "false", inputTokenPrice: 10, outputTokenPrice: 0.25, cachedTokenPrice: 5 };
-        expect(priceTierPayloadFromForm("video", tier, "seedance")).toMatchObject({ selector: {}, videoSeconds: 0, providerModelKey: "seedance", inputTokenPriceMicrocredits: 0, outputTokenPriceMicrocredits: 250_000, cachedTokenPriceMicrocredits: 0 });
+        expect(priceTierPayloadFromForm("video", tier, "seedance")).toMatchObject({
+            selector: { videoGenerateAudio: "false" },
+            videoSeconds: 0,
+            providerModelKey: "seedance",
+            inputTokenPriceMicrocredits: 0,
+            outputTokenPriceMicrocredits: 250_000,
+            cachedTokenPriceMicrocredits: 0,
+        });
         expect(priceTierPayloadFromForm("text", tier, "text-model")).toMatchObject({ inputTokenPriceMicrocredits: 10_000_000, outputTokenPriceMicrocredits: 250_000, cachedTokenPriceMicrocredits: 5_000_000 });
         expect(priceTierPayloadFromForm("video", { ...tier, outputTokenPrice: 0 }, "seedance").outputTokenPriceMicrocredits).toBe(0);
     });
