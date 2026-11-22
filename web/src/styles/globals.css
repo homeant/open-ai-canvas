@@ -2418,6 +2418,7 @@
     .canvas-project-sidebar-back-link:focus-visible,
     .canvas-project-sidebar-assets-button:focus-visible,
     .canvas-project-sidebar-chapter-row:focus-visible,
+    .canvas-drama-cast-tab:focus-visible,
     .canvas-drama-sidebar-action:focus-visible {
         outline: 2px solid color-mix(in srgb, var(--workspace-accent) 42%, transparent);
         outline-offset: 2px;
@@ -2429,6 +2430,29 @@
 
     .canvas-project-sidebar-section-heading {
         color: color-mix(in srgb, var(--foreground) 52%, transparent);
+    }
+
+    .canvas-drama-cast-tabs {
+        background: color-mix(in srgb, var(--foreground) 5%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 5%, transparent);
+    }
+
+    .canvas-drama-cast-tab {
+        color: color-mix(in srgb, var(--foreground) 48%, transparent);
+        transition:
+            background-color var(--motion-instant) var(--ease-product-enter),
+            color var(--motion-instant) var(--ease-product-enter),
+            box-shadow var(--motion-instant) var(--ease-product-enter);
+    }
+
+    .canvas-drama-cast-tab:hover {
+        color: color-mix(in srgb, var(--foreground) 74%, transparent);
+    }
+
+    .canvas-drama-cast-tab[aria-selected="true"] {
+        background: color-mix(in srgb, var(--background) 84%, var(--foreground) 5%);
+        color: var(--foreground);
+        box-shadow: var(--shadow-xs);
     }
 
     .canvas-project-sidebar-chapter-scroll {
@@ -2505,6 +2529,7 @@
         .canvas-project-sidebar-header button,
         .canvas-project-sidebar-back-link,
         .canvas-project-sidebar-chapter-row,
+        .canvas-drama-cast-tab,
         .canvas-project-sidebar-assets-button,
         .canvas-drama-sidebar-action {
             transition: none;
