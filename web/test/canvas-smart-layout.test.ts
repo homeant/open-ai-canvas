@@ -56,6 +56,48 @@ describe("smart canvas arrangement", () => {
         expectSeparated([f!, outside]);
     });
 
+    test("smart arrangement separates overlapping storyboard contents and expands the frame before placing it", () => {
+        const frame = node("shot-frame", { type: CanvasNodeType.Frame, position: { x: 100, y: 100 }, width: 520, height: 360, metadata: { frame: { collapsed: false, expandedWidth: 520, expandedHeight: 360 } } });
+        const prompt = node("prompt", { type: CanvasNodeType.Text, parentId: frame.id, position: { x: 140, y: 180 }, width: 320, height: 180 });
+        const image = node("reference", { parentId: frame.id, position: { x: 160, y: 190 }, width: 240, height: 180 });
+        const video = node("video", { type: CanvasNodeType.Video, parentId: frame.id, position: { x: 150, y: 200 }, width: 400, height: 220 });
+        const neighboringFrame = node("next-frame", { type: CanvasNodeType.Frame, position: { x: 700, y: 100 }, width: 500, height: 360 });
+        const nodes = [frame, prompt, image, video, neighboringFrame];
+        const edges = [{ id: "reference-video", fromNodeId: image.id, toNodeId: video.id }];
+        const result = arrangeCanvasDocument(nodes, edges, { mode: "auto", selectedIds: new Set([frame.id]) });
+        const [nextFrame, nextPrompt, nextImage, nextVideo, fixed] = result.nodes;
+
+        expect(result.movedCount).toBeGreaterThan(0);
+        expect(fixed).toBe(neighboringFrame);
+        expectSeparated([nextPrompt!, nextImage!, nextVideo!], 24);
+        expectSeparated([nextFrame!, fixed!]);
+        for (const child of [nextPrompt!, nextImage!, nextVideo!]) {
+            expect(child.position.x).toBeGreaterThanOrEqual(nextFrame!.position.x + 24);
+            expect(child.position.y).toBeGreaterThanOrEqual(nextFrame!.position.y + 36 + 24);
+            expect(child.position.x + child.width + 24).toBeLessThanOrEqual(nextFrame!.position.x + nextFrame!.width);
+            expect(child.position.y + child.height + 24).toBeLessThanOrEqual(nextFrame!.position.y + nextFrame!.height);
+        }
+        expect(nextFrame!.metadata?.frame?.expandedWidth).toBe(nextFrame!.width);
+        expect(nextFrame!.metadata?.frame?.expandedHeight).toBe(nextFrame!.height);
+        expect(nextFrame!.width).toBeGreaterThan(frame.width);
+        expect(arrangeCanvasDocument(result.nodes, edges, { mode: "auto", selectedIds: new Set([frame.id]) }).movedCount).toBe(0);
+        expect(nodes[1]!.position).toEqual({ x: 140, y: 180 });
+    });
+
+    test("smart arrangement preserves an already spaced storyboard interior", () => {
+        const frame = node("frame", { type: CanvasNodeType.Frame, position: { x: 100, y: 100 }, width: 900, height: 440, metadata: { frame: { collapsed: false, expandedWidth: 900, expandedHeight: 440 } } });
+        const prompt = node("prompt", { parentId: frame.id, position: { x: 140, y: 180 } });
+        const image = node("image", { parentId: frame.id, position: { x: 520, y: 180 } });
+        const blocker = node("blocker", { position: { x: 100, y: 100 }, width: 900, height: 440 });
+        const result = arrangeCanvasDocument([frame, prompt, image, blocker], [], { mode: "auto", selectedIds: new Set([frame.id]) });
+        const [nextFrame, nextPrompt, nextImage, fixed] = result.nodes;
+        expect(fixed).toBe(blocker);
+        expect(nextPrompt!.position.x - nextFrame!.position.x).toBe(40);
+        expect(nextImage!.position.x - nextFrame!.position.x).toBe(420);
+        expect(nextFrame!.width).toBe(900);
+        expect(arrangeCanvasDocument(result.nodes, [], { mode: "auto", selectedIds: new Set([frame.id]) }).movedCount).toBe(0);
+    });
+
     test("a locked descendant protects its entire group", () => {
         const frame = node("frame", { type: CanvasNodeType.Frame });
         const child = node("child", { parentId: frame.id, metadata: { locked: true } });

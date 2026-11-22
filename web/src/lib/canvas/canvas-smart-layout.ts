@@ -1,4 +1,5 @@
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type Position } from "@/types/canvas";
+import { FRAME_HEADER_HEIGHT, FRAME_PADDING } from "./canvas-frame";
 import { canvasLayoutLane, layoutCanvasAuto, layoutCanvasFlow, layoutCanvasNodes, layoutCanvasNodesByMediaType } from "./canvas-layout";
 
 export type CanvasArrangeMode = "auto" | "separate" | "byType" | "shots" | "flow" | "row" | "column" | "grid";
@@ -14,6 +15,7 @@ export const CANVAS_ARRANGE_OPTIONS: Array<{ mode: CanvasArrangeMode; label: str
 ];
 
 const GAP = 56;
+const FRAME_CONTENT_GAP = 32;
 type Rect = Position & { width: number; height: number };
 type Unit = { node: CanvasNodeData; members: CanvasNodeData[]; visible: CanvasNodeData[]; locked: boolean };
 
@@ -203,8 +205,52 @@ function withShotIdentity(units: Unit[], connections: CanvasConnection[], owner:
     });
 }
 
+/** Reflow overlapping contents before placing their frame, so the outer pass sees its final size. */
+function arrangeFrameContents(nodes: CanvasNodeData[], connections: CanvasConnection[], units: Unit[], selectedIds?: Set<string>) {
+    const changes = new Map<string, CanvasNodeData>();
+    units.forEach((group) => {
+        const frame = group.members.find((node) => node.type === CanvasNodeType.Frame);
+        if (!frame || frame.metadata?.frame?.collapsed || group.locked || (selectedIds?.size && !group.members.some((node) => selectedIds.has(node.id)))) return;
+        const children = group.members.filter((node) => node.id !== frame.id);
+        if (children.length < 2) return;
+        const innerUnits = canvasUnits(children);
+        const visible = innerUnits.map((unit) => unit.node);
+        if (!visible.some((node, index) => visible.slice(index + 1).some((other) => overlaps({ ...node.position, width: node.width, height: node.height }, { ...other.position, width: other.width, height: other.height }, FRAME_CONTENT_GAP)))) return;
+
+        const owner = new Map(innerUnits.flatMap((unit) => unit.members.map((node) => [node.id, unit.node.id] as const)));
+        const innerEdges = connections.flatMap((edge) => {
+            const fromNodeId = owner.get(edge.fromNodeId);
+            const toNodeId = owner.get(edge.toNodeId);
+            return fromNodeId && toNodeId && fromNodeId !== toNodeId ? [{ ...edge, fromNodeId, toNodeId }] : [];
+        });
+        const planned = layoutCanvasAuto(visible, innerEdges);
+        const planNodes = visible.map((node) => ({ ...node, position: planned.get(node.id) || node.position }));
+        const planBounds = bounds(planNodes);
+        const anchor = { x: frame.position.x + FRAME_PADDING, y: frame.position.y + FRAME_HEADER_HEIGHT + FRAME_PADDING };
+        const occupied: Rect[] = [];
+        innerUnits.forEach((unit) => {
+            const preferred = planned.get(unit.node.id) || unit.node.position;
+            const position = freePosition(occupied, { x: anchor.x + preferred.x - planBounds.x, y: anchor.y + preferred.y - planBounds.y }, unit.node, FRAME_CONTENT_GAP, true);
+            occupied.push({ ...position, width: unit.node.width, height: unit.node.height });
+            unit.members.forEach((node) => {
+                const x = node.position.x + position.x - unit.node.position.x;
+                const y = node.position.y + position.y - unit.node.position.y;
+                if (Math.abs(x - node.position.x) > 0.001 || Math.abs(y - node.position.y) > 0.001) changes.set(node.id, { ...node, position: { x, y } });
+            });
+        });
+        const width = Math.max(frame.width, ...occupied.map((rect) => rect.x + rect.width + FRAME_PADDING - frame.position.x));
+        const height = Math.max(frame.height, ...occupied.map((rect) => rect.y + rect.height + FRAME_PADDING - frame.position.y));
+        if (width !== frame.width || height !== frame.height) {
+            changes.set(frame.id, { ...frame, width, height, metadata: { ...frame.metadata, frame: { ...frame.metadata?.frame, collapsed: false, expandedWidth: width, expandedHeight: height } } });
+        }
+    });
+    return changes.size ? nodes.map((node) => changes.get(node.id) || node) : nodes;
+}
+
 export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: CanvasConnection[], options: { mode: CanvasArrangeMode; selectedIds?: Set<string> }) {
-    const baseUnits = canvasUnits(nodes);
+    const originalUnits = canvasUnits(nodes);
+    const prepared = options.mode === "auto" ? arrangeFrameContents(nodes, connections, originalUnits, options.selectedIds) : nodes;
+    const baseUnits = prepared === nodes ? originalUnits : canvasUnits(prepared);
     const owner = new Map(baseUnits.flatMap((unit) => unit.members.map((node) => [node.id, unit.node.id] as const)));
     const units = withShotIdentity(baseUnits, connections, owner);
     const selected = units.filter((unit) => !options.selectedIds?.size || unit.members.some((node) => options.selectedIds!.has(node.id)));
@@ -305,7 +351,8 @@ export function arrangeCanvasDocument(nodes: CanvasNodeData[], connections: Canv
             if (Math.abs(x - node.position.x) > 0.001 || Math.abs(y - node.position.y) > 0.001) finalPositions.set(node.id, { x, y });
         });
     });
-    const nextNodes = nodes.map((node) => (finalPositions.has(node.id) ? { ...node, position: finalPositions.get(node.id)! } : node));
+    const nextNodes = prepared.map((node) => (finalPositions.has(node.id) ? { ...node, position: finalPositions.get(node.id)! } : node));
     const visibleIds = new Set(moving.flatMap((unit) => unit.visible.map((node) => node.id)));
-    return { nodes: nextNodes, movedCount: finalPositions.size, unitCount: moving.length, lockedCount: selected.filter((unit) => unit.locked).length, focusNodes: nextNodes.filter((node) => visibleIds.has(node.id)) };
+    const movedCount = nextNodes.filter((node, index) => node.position.x !== nodes[index]!.position.x || node.position.y !== nodes[index]!.position.y || node.width !== nodes[index]!.width || node.height !== nodes[index]!.height).length;
+    return { nodes: nextNodes, movedCount, unitCount: moving.length, lockedCount: selected.filter((unit) => unit.locked).length, focusNodes: nextNodes.filter((node) => visibleIds.has(node.id)) };
 }
