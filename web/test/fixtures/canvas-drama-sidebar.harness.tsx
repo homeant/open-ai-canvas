@@ -68,7 +68,7 @@ test("选项卡显示分类数量、过滤内容并支持键盘切换", async ()
             <MemoryRouter>
                 <CanvasDramaSidebar
                     summary={summary}
-                    cast={[cast("hero", "character", "林溪"), cast("friend", "character", "周遥", 1), cast("school", "scene", "旧校舍"), cast("letter", "prop", "未寄出的信")]}
+                    cast={[cast("hero", "character", "林溪", 0), cast("friend", "character", "周遥", 1), cast("school", "scene", "旧校舍"), cast("letter", "prop", "未寄出的信")]}
                     presence={{ cast: new Map(), segment: new Map(), final: new Map() }}
                     busyKey={null}
                     onProjectCast={onProjectCast}
@@ -87,6 +87,23 @@ test("选项卡显示分类数量、过滤内容并支持键盘切换", async ()
         expect(tab(host, "角色").getAttribute("aria-selected")).toBe("true");
         expect(host.textContent).toContain("林溪");
         expect(host.textContent).not.toContain("旧校舍");
+
+        const search = host.querySelector<HTMLInputElement>('[aria-label="搜索设定"]')!;
+        await act(async () => {
+            Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(search, "周遥");
+            search.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        expect(host.textContent).toContain("周遥");
+        expect(host.textContent).not.toContain("林溪");
+        await act(async () => {
+            Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(search, "不存在");
+            search.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        expect(host.textContent).toContain("没有匹配的角色设定");
+        await act(async () => {
+            Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(search, "");
+            search.dispatchEvent(new Event("input", { bubbles: true }));
+        });
 
         await act(async () => tab(host, "场景").click());
         expect(tab(host, "场景").getAttribute("aria-selected")).toBe("true");
