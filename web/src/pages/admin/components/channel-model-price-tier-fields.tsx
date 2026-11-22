@@ -71,7 +71,7 @@ export function PriceTierFields({
                     <span className="admin-price-tier-card-index">{String(ordinal).padStart(2, "0")}</span>
                     <div className="admin-price-tier-card-heading-copy">
                         <div className="admin-price-tier-card-title">{matchMode === "default" ? "默认价格" : `规格价格 ${ordinal}`}</div>
-                        <div className="admin-price-tier-card-summary">{matchMode === "default" ? "所有请求使用同一价格" : isVideo ? "按生成方式与分辨率匹配" : "按生成方式、画质、分辨率或尺寸匹配"}</div>
+                        <div className="admin-price-tier-card-summary">{matchMode === "default" ? "所有请求使用同一价格" : isVideo ? "按生成方式、分辨率、时长与参考图匹配" : "按生成方式、画质、分辨率或尺寸匹配"}</div>
                     </div>
                 </div>
                 <div className="admin-price-tier-card-actions">
@@ -136,6 +136,25 @@ export function PriceTierFields({
                                     <Form.Item className="mb-0" name={[index, "fpsBand"]} label="输出帧率档" tooltip="视频处理按输出帧率分档计价；保持原帧率时按 ≤30fps 档预扣">
                                         <Select options={fpsBandOptions} />
                                     </Form.Item>
+                                ) : null}
+                                {isVideo ? (
+                                    <>
+                                        <Form.Item className="mb-0" name={[index, "videoSeconds"]} label="视频时长（秒）" extra="0 表示任意时长" rules={[{ type: "integer", min: 0, message: "请输入非负整数秒数" }]}>
+                                            <InputNumber min={0} precision={0} className="w-full" />
+                                        </Form.Item>
+                                        <Form.Item className="mb-0" name={[index, "imageCount"]} label="参考图片数量" extra="0 表示任意数量" rules={[{ type: "integer", min: 0, message: "请输入非负整数数量" }]}>
+                                            <InputNumber min={0} precision={0} className="w-full" />
+                                        </Form.Item>
+                                        <Form.Item className="mb-0" name={[index, "videoGenerateAudio"]} label="生成音频">
+                                            <Select
+                                                options={[
+                                                    { label: "不限", value: "*" },
+                                                    { label: "生成音频", value: "true" },
+                                                    { label: "不生成音频", value: "false" },
+                                                ]}
+                                            />
+                                        </Form.Item>
+                                    </>
                                 ) : null}
                                 {isImage && image?.parameters
                                     ? image.parameters

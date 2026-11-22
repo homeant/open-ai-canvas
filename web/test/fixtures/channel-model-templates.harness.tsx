@@ -487,6 +487,46 @@ const { AdminProvider } = await import("../../src/pages/admin/admin-context");
 const { apiClient } = await import("../../src/services/api/request");
 const { defaultTokenPriceRule } = await import("../../src/pages/admin/components/channel-model-price-tier-form");
 
+test("完整模型编辑器：H3 选择发行版后保留时长和参考图价格条件并保存", async () => {
+    const values = {
+        ...draft(),
+        capability: "video" as const,
+        protocol: "metaso-h3",
+        modelKey: "MiniMax-H3",
+        providerModelKey: "MiniMax-H3",
+        capabilityConfig: defaultModelCapabilityConfig("metaso-h3", "MiniMax-H3"),
+    };
+    const editing = savedModel(values);
+    const selectors = [
+        { vquality: "768p", videoSeconds: "4", imageCount: "6" },
+        { vquality: "768p", videoSeconds: "5", imageCount: "6" },
+        { vquality: "768p", videoSeconds: "4", imageCount: "7" },
+    ];
+    editing.priceTiers = selectors.map((selector, index) => ({
+        ...editing.priceTiers[0],
+        id: `h3-tier-${index}`,
+        selector,
+        selectorKey: JSON.stringify(selector),
+        resolution: "768p",
+        videoSeconds: Number(selector.videoSeconds),
+        unitPriceMicrocredits: (index + 1) * 1_000_000,
+    }));
+    const release = (version: string, current: boolean) => ({ pluginId: "metaso-h3", version, sha256: version, current, create: "POST /jobs" });
+    const fixture = await mountEditor(editing, [{ value: "metaso-h3", label: "H3", capability: "video", create: "POST /jobs", contentType: "application/json", media: "video", releases: [release("1.0.4", true), release("1.0.3", false)] }]);
+    try {
+        await tab("基本信息");
+        await choose("插件发行版本", "v1.0.4 · 1.0.4（当前发行版）");
+        expect(button("保存修改").disabled).toBe(false);
+        await click("保存修改");
+        expect(fixture.saves).toHaveLength(1);
+        expect(fixture.saves[0].protocolRelease).toBe("1.0.4");
+        expect(fixture.saves[0].priceTiers.map((tier: any) => tier.selector)).toEqual(selectors);
+        expect(fixture.saves[0].priceTiers.map((tier: any) => tier.unitPriceMicrocredits)).toEqual([1_000_000, 2_000_000, 3_000_000]);
+    } finally {
+        await fixture.close();
+    }
+});
+
 test("积分模板：账号隔离、并发编辑及损坏存储不能覆盖原数据", () => {
     const first = savePricingTemplate("template-test", "原价格", draft());
     const edited = savePricingTemplate("template-test", "新价格", draft(), first);

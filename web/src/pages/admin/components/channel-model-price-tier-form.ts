@@ -189,8 +189,10 @@ export function priceTierToForm(tier: ChannelModelPriceTier, image?: ImageCapabi
         delete selector.quality;
         delete selector.resolution;
     }
-    const candidates = image?.parameters ? Object.values(selector) : [selector.operation, selector.imageResolution, selector.quality, selector.resolution, selector.size, selector.fpsBand];
-    const hasSpecificMatch = candidates.some((value) => value && value !== "*") || (tier.resolution && tier.resolution !== "*");
+    const candidates = image?.parameters
+        ? Object.values(selector)
+        : [selector.operation, selector.imageResolution, selector.quality, selector.resolution, selector.size, selector.fpsBand, selector.videoSeconds, selector.imageCount, selector.videoGenerateAudio];
+    const hasSpecificMatch = candidates.some((value) => value && value !== "*") || (tier.resolution && tier.resolution !== "*") || tier.videoSeconds > 0;
     return {
         imagePricing: imagePricingToForm(tier.imagePricing),
         costImagePricing: imagePricingToForm(tier.costPricing?.imagePricing),
@@ -201,7 +203,7 @@ export function priceTierToForm(tier: ChannelModelPriceTier, image?: ImageCapabi
         quality: selector.quality || "*",
         size: selector.size || "*",
         resolution: selector.resolution || tier.resolution || "*",
-        videoSeconds: tier.videoSeconds || 0,
+        videoSeconds: Number(selector.videoSeconds || tier.videoSeconds || 0),
         videoGenerateAudio: selector.videoGenerateAudio || "*",
         fpsBand: selector.fpsBand || "*",
         imageCount: Number(selector.imageCount || 0),
@@ -251,6 +253,9 @@ export function skuSelectorFromForm(capability: ModelCapabilityChoice, tier: Pri
     if (tier.operation && tier.operation !== "*") selector.operation = tier.operation;
     if (capability === "video") {
         if (tier.resolution && tier.resolution !== "*") selector.vquality = tier.resolution;
+        if (tier.videoSeconds > 0) selector.videoSeconds = String(tier.videoSeconds);
+        if (tier.imageCount > 0) selector.imageCount = String(tier.imageCount);
+        if (tier.videoGenerateAudio === "true" || tier.videoGenerateAudio === "false") selector.videoGenerateAudio = tier.videoGenerateAudio;
         if (capabilityConfig?.video?.processing && tier.fpsBand && tier.fpsBand !== "*") selector.fpsBand = tier.fpsBand;
     }
     if (capability === "image") {
@@ -281,9 +286,7 @@ export function priceTierResolutionFromForm(capability: ModelCapabilityChoice, t
 }
 
 export function priceTierVideoSecondsFromForm(capability: ModelCapabilityChoice, tier: PriceTierFormValues) {
-    void capability;
-    void tier;
-    return 0;
+    return capability === "video" && tier.matchMode === "advanced" ? tier.videoSeconds || 0 : 0;
 }
 
 export function priceTierPayloadFromForm(capability: ModelCapabilityChoice, tier: PriceTierFormValues, upstreamModel: string, capabilityConfig?: ModelCapabilityConfig) {
