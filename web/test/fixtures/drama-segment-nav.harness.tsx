@@ -137,7 +137,7 @@ function Host({
             videoResolution="720P"
             onClose={() => {}}
             onNavigate={(next) => setIndex(next)}
-            onPatchShot={() => {}}
+            onPatchShot={async () => {}}
             onSavePrompt={onSavePrompt}
             onSaveReferences={async () => {}}
             onWritePrompt={() => {}}

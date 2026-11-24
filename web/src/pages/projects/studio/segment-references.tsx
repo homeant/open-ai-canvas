@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CanvasImagePreview } from "@/components/canvas/canvas-image-preview";
 import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
-import type { DramaCast, DramaSegment, DramaSegmentReferencePatch, DramaShot } from "@/services/api/drama";
+import type { DramaCast, DramaSegment, DramaSegmentReferencePatch, DramaShot, DramaShotPatch } from "@/services/api/drama";
 import { uploadResourceFile } from "@/services/api/resources";
 import { linkProjectAsset } from "@/services/api/projects";
 import { MediaThumb, parseList } from "../drama-shared";
@@ -40,6 +40,7 @@ export function ReferenceBoard({
     castById,
     busy: saving,
     onSave,
+    onPatchShot,
     onOpenCast,
     onOpenAssets,
 }: {
@@ -49,6 +50,7 @@ export function ReferenceBoard({
     castById: Map<string, DramaCast>;
     busy: boolean;
     onSave: (patch: DramaSegmentReferencePatch) => Promise<unknown>;
+    onPatchShot: (shot: DramaShot, patch: DramaShotPatch) => Promise<unknown>;
     onOpenCast: (id: string) => void;
     onOpenAssets: () => void;
 }) {
@@ -70,7 +72,8 @@ export function ReferenceBoard({
     };
     const { request } = segment;
     const ids = request.references.filter((ref) => ref.castId).map((ref) => ref.castId);
-    const images = request.references.filter((ref) => !ref.castId && ref.resourceId).map((ref) => ({ resourceId: ref.resourceId!, name: ref.name }));
+    const shotImages = [...new Map([...(request.shotImages || []), ...request.references.filter((ref) => ref.shotId)].filter((ref) => ref.shotId && ref.resourceId).map((ref) => [`${ref.shotId}:${ref.resourceId}`, ref])).values()];
+    const images = request.references.filter((ref) => !ref.castId && !ref.shotId && ref.resourceId).map((ref) => ({ resourceId: ref.resourceId!, name: ref.name }));
     const refsById = new Map(request.references.filter((ref) => ref.castId).map((ref) => [ref.castId, ref]));
     const selectedVoices = voiceDraft ?? (request.audioReferences || []).map((voice) => voice.castId);
     const audioLimit = request.modelMaxAudios || 0;
@@ -79,6 +82,14 @@ export function ReferenceBoard({
         void onSave(patch).catch(() => {});
     };
     const saveIDs = (next: string[]) => save({ referenceCastIds: next });
+    const patchShotImage = (ref: Reference, operation: "remove" | "refresh_canvas") => {
+        const shot = shots.find((item) => item.id === ref.shotId);
+        if (!shot || !ref.resourceId) {
+            message.error("镜头图片绑定已变化，请刷新后重试");
+            return;
+        }
+        void onPatchShot(shot, { imageReferenceAction: { operation, resourceId: ref.resourceId } }).catch(() => {});
+    };
     const toggleCast = (cast: DramaCast) => {
         if (ids.includes(cast.id)) saveIDs(ids.filter((id) => id !== cast.id));
         else {
@@ -215,6 +226,27 @@ export function ReferenceBoard({
             />
         );
     };
+    const renderShotImage = (ref: Reference) => (
+        <AssetCard
+            key={`${ref.shotId}:${ref.resourceId}`}
+            name={ref.name}
+            kind="镜头绑定图"
+            assetKind="image"
+            resourceId={ref.resourceId}
+            badge={ref.label}
+            checked
+            disabled={busy}
+            note={`${ref.role === "first_frame" ? "段首首帧" : "实体信息图"} · 绑定到镜头，不属于段级附加图`}
+            onToggle={() => patchShotImage(ref, "remove")}
+            onPreview={openPreview}
+        >
+            {ref.canvasId && ref.nodeId ? (
+                <Button size="small" type="text" disabled={busy} icon={<RotateCcw className="size-3.5" />} onClick={() => patchShotImage(ref, "refresh_canvas")}>
+                    同步画布当前图
+                </Button>
+            ) : null}
+        </AssetCard>
+    );
     const first = segment.index === 0 && !request.firstFrameResourceId && !request.firstFramePending;
     const voiceActions = (
         <>
@@ -411,7 +443,16 @@ export function ReferenceBoard({
                             <strong>附加图片</strong>
                             <small>排在设定参考之后</small>
                         </div>
-                        <div className="drama-sdx-assets">{request.references.filter((ref) => !ref.castId).map(renderImage)}</div>
+                        <div className="drama-sdx-assets">{request.references.filter((ref) => !ref.castId && !ref.shotId).map(renderImage)}</div>
+                    </section>
+                ) : null}
+                {shotImages.length ? (
+                    <section className="drama-sdx-asset-group" aria-label="镜头绑定图">
+                        <div className="drama-sdx-group-head">
+                            <strong>镜头绑定图</strong>
+                            <small>删除或同步会修改对应镜头绑定</small>
+                        </div>
+                        <div className="drama-sdx-assets">{shotImages.map(renderShotImage)}</div>
                     </section>
                 ) : null}
                 <small className="drama-sdx-hint">顺序变化会更新参考图编号。模型撰写的提示词需重新撰写；手写提示词请核对编号。</small>

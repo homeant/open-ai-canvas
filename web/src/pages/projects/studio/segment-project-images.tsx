@@ -54,7 +54,7 @@ function episodeImages(detail: DramaEpisodeDetail | undefined): AssetLibraryPick
     const images = new Map<string, AssetLibraryPickerItem>();
     for (const segment of detail?.segments || []) {
         for (const reference of segment.request.references) {
-            if (reference.castId || !reference.resourceId) continue;
+            if (reference.castId || reference.shotId || !reference.resourceId) continue;
             const source = `第 ${segment.index + 1} 段${segment.title ? ` · ${segment.title}` : ""}`;
             const previous = images.get(reference.resourceId);
             if (previous) {

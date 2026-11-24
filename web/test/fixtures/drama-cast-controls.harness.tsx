@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { Window } from "happy-dom";
-import type { DramaCast, DramaSegment, DramaSegmentReferencePatch, DramaSummary } from "../../src/services/api/drama";
+import type { DramaCast, DramaSegment, DramaSegmentReferencePatch, DramaShot, DramaShotPatch, DramaSummary } from "../../src/services/api/drama";
 
 const dom = new Window({ url: "http://localhost/projects/drama" });
 const globals = new Map<string, PropertyDescriptor | undefined>();
@@ -260,7 +260,13 @@ const segment = {
     },
 } as DramaSegment;
 
-async function renderReferences(onSave: (patch: DramaSegmentReferencePatch) => Promise<unknown>, currentSegment = segment, onOpenAssets = () => {}) {
+async function renderReferences(
+    onSave: (patch: DramaSegmentReferencePatch) => Promise<unknown>,
+    currentSegment = segment,
+    onOpenAssets = () => {},
+    onPatchShot: (shot: DramaShot, patch: DramaShotPatch) => Promise<unknown> = async () => {},
+    shots: DramaShot[] = [],
+) {
     const castById = new Map<string, DramaCast>([
         ["hero", { ...character, imageResourceId: undefined, voiceSampleResourceId: "voice-1" }],
         ["second", { ...character, id: "second", name: "配角", aliasesJson: '["小乙"]', imageResourceId: undefined, voiceSampleResourceId: "voice-2" }],
@@ -272,7 +278,7 @@ async function renderReferences(onSave: (patch: DramaSegmentReferencePatch) => P
         root.render(
             <QueryClientProvider client={client}>
                 <App>
-                    <ReferenceBoard projectId="project" segment={currentSegment} shots={[]} castById={castById} busy={false} onSave={onSave} onOpenCast={() => {}} onOpenAssets={onOpenAssets} />
+                    <ReferenceBoard projectId="project" segment={currentSegment} shots={shots} castById={castById} busy={false} onSave={onSave} onPatchShot={onPatchShot} onOpenCast={() => {}} onOpenAssets={onOpenAssets} />
                 </App>
             </QueryClientProvider>,
         ),
@@ -311,6 +317,30 @@ test("asset drawer keeps failed additions and removals uncommitted", async () =>
     expect(save).toHaveBeenLastCalledWith({ referenceCastIds: [] });
     expect(menu.querySelector('[aria-label="移除参考图主角"]')?.getAttribute("aria-pressed")).toBe("true");
     expect(host.querySelector('[aria-label="本段资产预览"]')?.textContent).toContain("主角");
+});
+
+test("shot-bound images use shot actions instead of segment reference patches", async () => {
+    const save = mock(async (_patch: DramaSegmentReferencePatch) => {});
+    const patchShot = mock(async (_shot: DramaShot, _patch: DramaShotPatch) => {});
+    const shot = { id: "shot-1", episodeId: "episode", segmentIndex: 0 } as DramaShot;
+    const withShotImage = {
+        ...segment,
+        request: {
+            ...segment.request,
+            shotImages: [{ castId: "", shotId: shot.id, canvasId: "canvas", nodeId: "phone", resourceId: "bound", name: "手机画面", kind: "image", role: "first_frame", label: "", sent: true }],
+            references: [{ castId: "", resourceId: "extra", name: "夜景", kind: "image", label: "参考图1", sent: true }],
+        },
+    } as DramaSegment;
+    await renderReferences(save, withShotImage, () => {}, patchShot, [shot]);
+    await openReferenceSettings();
+    expect(host.querySelector('[aria-label="镜头绑定图"]')?.textContent).toContain("手机画面");
+    await click("移除参考图手机画面");
+    expect(patchShot).toHaveBeenLastCalledWith(shot, { imageReferenceAction: { operation: "remove", resourceId: "bound" } });
+    expect(save).not.toHaveBeenCalled();
+    await click("同步画布当前图");
+    expect(patchShot).toHaveBeenLastCalledWith(shot, { imageReferenceAction: { operation: "refresh_canvas", resourceId: "bound" } });
+    await click("移除参考图夜景");
+    expect(save).toHaveBeenLastCalledWith({ referenceImages: [] });
 });
 
 test("failed voice save retains the editable selection until retry succeeds", async () => {

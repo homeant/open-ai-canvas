@@ -388,6 +388,14 @@ func (s *Service) prepareDramaShotUpdate(userID, projectID, shotID string, req U
 	}
 	before := *shot
 	fields := map[string]any{}
+	if req.ImageReferenceAction != nil {
+		if err := s.applyDramaShotImageReferenceAction(userID, project.ID, shot, *req.ImageReferenceAction); err != nil {
+			return nil, err
+		}
+		if shot.ImageReferencesJSON != before.ImageReferencesJSON {
+			fields["image_references_json"] = shot.ImageReferencesJSON
+		}
+	}
 	for _, f := range []struct {
 		column string
 		target *string

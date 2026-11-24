@@ -185,9 +185,9 @@ export default function DramaStudioPage() {
     });
     const patchShot = useMutation({
         mutationFn: ({ shot, patch }: { shot: DramaShot; patch: DramaShotPatch }) => updateDramaShot(projectId, shot.id, patch),
-        onSuccess: () => {
+        onSuccess: (_, { patch }) => {
             invalidate(episodeId);
-            message.success("分镜已保存；可安全同步的对白已更新到提示词");
+            message.success(patch.imageReferenceAction?.operation === "remove" ? "已解除镜头图片绑定" : patch.imageReferenceAction?.operation === "refresh_canvas" ? "已同步画布当前图片" : "分镜已保存；可安全同步的对白已更新到提示词");
         },
         onError: (error) => errorMessage(error, "保存失败"),
     });
@@ -766,7 +766,7 @@ export default function DramaStudioPage() {
                             writing={writeSegment.isPending}
                             onClose={() => openSegment(null)}
                             onNavigate={openSegment}
-                            onPatchShot={(shot, patch) => patchShot.mutate({ shot, patch })}
+                            onPatchShot={(shot, patch) => patchShot.mutateAsync({ shot, patch })}
                             onInsertShot={(shot, position) => insertShot.mutate({ shot, position })}
                             onDeleteShot={(shot) => removeShot.mutate(shot)}
                             onDiscussShot={discussShot}
