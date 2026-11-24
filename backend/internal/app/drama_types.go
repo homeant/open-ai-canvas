@@ -723,15 +723,22 @@ type UpdateDramaSegmentRequest struct {
 	AutoAudioReferences bool                         `json:"autoAudioReferences"`
 }
 
+type DramaShotImageReferenceAction struct {
+	Operation  string `json:"operation"`
+	ResourceID string `json:"resourceId"`
+}
+
 // UpdateDramaShotRequest 修改镜头的剧本内容；镜头只是撰写视频提示词的素材，修改后本段提示词标记过期。
 type UpdateDramaShotRequest struct {
-	Speaker     *string `json:"speaker,omitempty"`
-	Dialogue    *string `json:"dialogue,omitempty"`
-	Action      *string `json:"action,omitempty"`
-	ShotSize    *string `json:"shotSize,omitempty"`
-	Camera      *string `json:"camera,omitempty"`
-	ImagePrompt *string `json:"imagePrompt,omitempty"`
-	VideoPrompt *string `json:"videoPrompt,omitempty"`
+	// ImageReferenceAction 只修改镜头明确绑定的图片；段级附加参考图由 UpdateDramaSegmentRequest 管理。
+	ImageReferenceAction *DramaShotImageReferenceAction `json:"imageReferenceAction,omitempty"`
+	Speaker              *string                        `json:"speaker,omitempty"`
+	Dialogue             *string                        `json:"dialogue,omitempty"`
+	Action               *string                        `json:"action,omitempty"`
+	ShotSize             *string                        `json:"shotSize,omitempty"`
+	Camera               *string                        `json:"camera,omitempty"`
+	ImagePrompt          *string                        `json:"imagePrompt,omitempty"`
+	VideoPrompt          *string                        `json:"videoPrompt,omitempty"`
 	// Transition 是进入本镜头的转场；DurationSeconds 手动设置镜头时长。
 	Transition      *string  `json:"transition,omitempty"`
 	DurationSeconds *float64 `json:"durationSeconds,omitempty"`

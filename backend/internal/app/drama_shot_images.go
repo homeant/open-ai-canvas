@@ -93,6 +93,86 @@ func (s *Service) resolveDramaShotImages(userID, projectID string, inputs []mode
 	return result, nil
 }
 
+func (s *Service) refreshDramaShotCanvasImage(userID, projectID string, ref model.DramaShotImageReference) (model.DramaShotImageReference, error) {
+	if ref.CanvasID == "" || ref.NodeID == "" {
+		return ref, BadAuthRequest("这张镜头图片没有可同步的画布节点")
+	}
+	canvas, err := s.repo.CanvasProjectForUser(userID, ref.CanvasID)
+	if err != nil {
+		return ref, dramaLookupError(err)
+	}
+	if canvas.ProjectID != projectID {
+		return ref, Forbidden("图片画布不属于当前作品")
+	}
+	doc, err := creationDocument(canvas.PayloadJSON)
+	if err != nil {
+		return ref, err
+	}
+	nodes, err := creationObjects(doc["nodes"])
+	if err != nil {
+		return ref, err
+	}
+	node := nodes[ref.NodeID]
+	if node == nil || node["type"] != "image" {
+		return ref, BadAuthRequest("原画布节点已不存在或不再是图片，请重新绑定")
+	}
+	media, field, err := cloudAgentMediaReference(s.repo, userID, projectID, node)
+	if err != nil {
+		return ref, err
+	}
+	if field != "referenceImages" {
+		return ref, BadAuthRequest("原画布节点不再是图片")
+	}
+	ref.ResourceID = strings.TrimPrefix(stringValue(media["storageKey"]), "resource:")
+	ref.NodeHash = cloudAgentNodeHash(doc, ref.NodeID)
+	resolved, err := s.resolveDramaShotImages(userID, projectID, []model.DramaShotImageReference{ref})
+	if err != nil {
+		return ref, err
+	}
+	return resolved[0], nil
+}
+
+func (s *Service) applyDramaShotImageReferenceAction(userID, projectID string, shot *model.DramaShot, action DramaShotImageReferenceAction) error {
+	resourceID := strings.TrimSpace(action.ResourceID)
+	if resourceID == "" {
+		return BadAuthRequest("镜头图片资源缺失")
+	}
+	refs := dramaShotImages(*shot)
+	index := -1
+	for i := range refs {
+		if refs[i].ResourceID == resourceID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return BadAuthRequest("镜头图片绑定已变化，请刷新后重试")
+	}
+	switch action.Operation {
+	case "remove":
+		refs = append(refs[:index], refs[index+1:]...)
+	case "refresh_canvas":
+		refreshed, err := s.refreshDramaShotCanvasImage(userID, projectID, refs[index])
+		if err != nil {
+			return err
+		}
+		for i := range refs {
+			if i != index && refs[i].ResourceID == refreshed.ResourceID {
+				return BadAuthRequest("画布当前图片已绑定到这个镜头")
+			}
+		}
+		refs[index] = refreshed
+	default:
+		return BadAuthRequest("镜头图片操作无效")
+	}
+	data, err := json.Marshal(refs)
+	if err != nil {
+		return err
+	}
+	shot.ImageReferencesJSON = string(data)
+	return nil
+}
+
 func (s *Service) applyDramaShotImages(userID, projectID string, shot *model.DramaShot, edit DramaShotEdit) error {
 	if edit.ImageReferences == nil {
 		return nil

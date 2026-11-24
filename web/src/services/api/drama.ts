@@ -242,6 +242,7 @@ export type DramaShot = {
     imagePrompt: string;
     videoPrompt: string;
     sourceQuote: string;
+    imageReferencesJson?: string;
 };
 
 export type DramaEpisode = {
@@ -372,7 +373,21 @@ export type DramaSegment = {
 };
 
 /** 参考图编号与提交顺序一致；sent=false 表示未就绪或超过模型上限，不随请求发送。 */
-export type DramaSegmentReference = { castId: string; label: string; kind: DramaCastKind | "image"; name: string; resourceId?: string; sent: boolean };
+export type DramaSegmentReference = {
+    castId: string;
+    label: string;
+    kind: DramaCastKind | "image";
+    name: string;
+    resourceId?: string;
+    sent: boolean;
+    shotId?: string;
+    canvasId?: string;
+    nodeId?: string;
+    nodeHash?: string;
+    role?: "first_frame" | "information";
+    required?: boolean;
+    note?: string;
+};
 
 export type DramaReferenceImage = { resourceId: string; name: string };
 export type DramaSegmentReferencePatch = { referenceCastIds?: string[]; autoReferences?: boolean; referenceImages?: DramaReferenceImage[]; audioCastIds?: string[]; autoAudioReferences?: boolean };
@@ -398,6 +413,7 @@ export type DramaSegmentRequest = {
     firstFrameResourceId?: string;
     firstFramePending: boolean;
     tailFrameAsReference?: boolean;
+    shotImages?: DramaSegmentReference[];
     references: DramaSegmentReference[];
     /** 本段最多随请求发送的参考图张数（已扣除首帧并受每段上限约束）；modelMaxImages 是模型声明的图片上限。 */
     referenceCapacity: number;
@@ -679,7 +695,11 @@ export function composeDramaEpisode(projectId: string, episodeId: string) {
     return http.post<DramaEpisodeDetail>(`${base(projectId)}/episodes/${encodeURIComponent(episodeId)}/compose`);
 }
 
-export type DramaShotPatch = Partial<Pick<DramaShot, "speaker" | "dialogue" | "action" | "shotSize" | "camera" | "imagePrompt" | "videoPrompt">> & { transition?: DramaTransition; durationSeconds?: number };
+export type DramaShotPatch = Partial<Pick<DramaShot, "speaker" | "dialogue" | "action" | "shotSize" | "camera" | "imagePrompt" | "videoPrompt">> & {
+    transition?: DramaTransition;
+    durationSeconds?: number;
+    imageReferenceAction?: { operation: "remove" | "refresh_canvas"; resourceId: string };
+};
 
 /** 让文本模型（重新）撰写指定剧情段的完整视频提示词。 */
 export function writeDramaSegmentPrompts(projectId: string, episodeId: string, segments: number[]) {

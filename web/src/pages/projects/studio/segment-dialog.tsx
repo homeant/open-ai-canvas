@@ -55,7 +55,7 @@ type Props = {
     writing: boolean;
     onClose: () => void;
     onNavigate: (segmentIndex: number, shotId?: string) => void;
-    onPatchShot: (shot: DramaShot, patch: DramaShotPatch) => void;
+    onPatchShot: (shot: DramaShot, patch: DramaShotPatch) => Promise<unknown>;
     /** 在镜头前后插入空镜头；不传时不显示插入入口。 */
     onInsertShot?: (shot: DramaShot, position: "before" | "after") => void;
     /** 删除镜头；剧情段唯一的镜头不能删。 */
@@ -184,7 +184,17 @@ export function SegmentDialog({
                                 onGenerate={(model) => onGenerate(segment, model)}
                                 onWritePrompt={() => onWritePrompt(segment)}
                             />
-                            <ReferenceBoard projectId={detail.episode.projectId} segment={segment} shots={shots} castById={castById} busy={busy} onSave={(patch) => onSaveReferences(segment, patch)} onOpenCast={onOpenCast} onOpenAssets={onOpenAssets} />
+                            <ReferenceBoard
+                                projectId={detail.episode.projectId}
+                                segment={segment}
+                                shots={shots}
+                                castById={castById}
+                                busy={busy}
+                                onSave={(patch) => onSaveReferences(segment, patch)}
+                                onPatchShot={onPatchShot}
+                                onOpenCast={onOpenCast}
+                                onOpenAssets={onOpenAssets}
+                            />
                             <SegmentPrompt
                                 segment={segment}
                                 projectId={detail.episode.projectId}

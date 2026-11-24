@@ -89,6 +89,44 @@ func TestDramaShotCanvasImageSourceAndFirstFrame(t *testing.T) {
 	}
 }
 
+func TestUpdateDramaShotRemovesAndRefreshesCanvasImageBinding(t *testing.T) {
+	s, fake, project, _, before := mcpEditingFixture(t)
+	oldImage := fake.resource("usr-drama", "image", "image/png")
+	newImage := fake.resource("usr-drama", "image", "image/png")
+	doc := map[string]any{"nodes": []any{map[string]any{"id": "phone", "type": "image", "title": "手机画面", "metadata": map[string]any{"status": "success", "storageKey": "resource:" + oldImage}}}, "connections": []any{}}
+	data, _ := json.Marshal(doc)
+	canvas := model.CanvasProject{ID: "refresh-canvas", ProjectID: project, UserID: "usr-drama", PayloadJSON: string(data)}
+	if err := fake.db.Create(&canvas).Error; err != nil {
+		t.Fatal(err)
+	}
+	refs := []model.DramaShotImageReference{{ResourceID: oldImage, Role: "information", Name: "手机画面", CanvasID: canvas.ID, NodeID: "phone", NodeHash: cloudAgentNodeHash(doc, "phone")}}
+	encoded, _ := json.Marshal(refs)
+	shotID := before.Shots[0].ID
+	if err := fake.db.Model(&model.DramaShot{}).Where("id = ?", shotID).Update("image_references_json", string(encoded)).Error; err != nil {
+		t.Fatal(err)
+	}
+	doc["nodes"].([]any)[0].(map[string]any)["metadata"].(map[string]any)["storageKey"] = "resource:" + newImage
+	data, _ = json.Marshal(doc)
+	if err := fake.db.Model(&model.CanvasProject{}).Where("id = ?", canvas.ID).Update("payload_json", string(data)).Error; err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := s.UpdateDramaShot("usr-drama", project, shotID, UpdateDramaShotRequest{ImageReferenceAction: &DramaShotImageReferenceAction{Operation: "refresh_canvas", ResourceID: oldImage}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := dramaShotImages(refreshed)
+	if len(updated) != 1 || updated[0].ResourceID != newImage || updated[0].NodeHash != cloudAgentNodeHash(doc, "phone") {
+		t.Fatalf("canvas binding not refreshed: %+v", updated)
+	}
+	removed, err := s.UpdateDramaShot("usr-drama", project, shotID, UpdateDramaShotRequest{ImageReferenceAction: &DramaShotImageReferenceAction{Operation: "remove", ResourceID: newImage}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refs := dramaShotImages(removed); len(refs) != 0 {
+		t.Fatalf("shot binding not removed: %+v", refs)
+	}
+}
+
 func TestDramaShotMediaRejectionAndStaticBoundary(t *testing.T) {
 	s, fake, project, episode, before := mcpEditingFixture(t)
 	scope := DramaShotMediaScope{DramaID: project, EpisodeID: episode, ShotID: before.Shots[0].ID}

@@ -73,7 +73,7 @@ async function render(onSave: (patch: DramaSegmentReferencePatch) => Promise<unk
         root.render(
             <QueryClientProvider client={client}>
                 <App>
-                    <ReferenceBoard projectId="project" segment={currentSegment} shots={[]} castById={new Map()} busy={false} onSave={onSave} onOpenCast={() => {}} onOpenAssets={() => {}} />
+                    <ReferenceBoard projectId="project" segment={currentSegment} shots={[]} castById={new Map()} busy={false} onSave={onSave} onPatchShot={async () => {}} onOpenCast={() => {}} onOpenAssets={() => {}} />
                 </App>
             </QueryClientProvider>,
         ),
