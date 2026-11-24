@@ -14,6 +14,7 @@ import (
 
 	"gorm.io/gorm"
 	"yingce/backend/internal/canvas"
+	"yingce/backend/internal/canvas/layout"
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/repository"
 )
@@ -155,6 +156,7 @@ type cloudAgentMediaArgs struct {
 	Prepared                   *cloudAgentPreparedMedia            `json:"-"`
 	DraftRunID                 string                              `json:"-"`
 	ExternalCanvas             bool                                `json:"-"`
+	FocusNodeIDs               []string                            `json:"-"`
 	CharacterVersions          map[string]string                   `json:"-"`
 	CharacterLabels            []string                            `json:"-"`
 	Mode                       string                              `json:"mode"`
@@ -844,6 +846,7 @@ func (s *Service) prepareCloudAgentMedia(run *model.CloudAgentExecution, state *
 		a.Title = map[string]string{"image": "图片创作", "video": "视频创作", "audio": "音频创作"}[a.Mode]
 	}
 	a.DraftRunID = run.ID
+	a.FocusNodeIDs = append([]string(nil), state.Request.FocusNodeIDs...)
 	if state.Approval != nil && state.Approval.Prepared != nil &&
 		state.Approval.CallHash == cloudAgentApprovalCallHash(call) {
 		a.Prepared = state.Approval.Prepared
@@ -1190,18 +1193,6 @@ func createCloudAgentMediaNode(repo *repository.Repository, userID, canvasID str
 	beforeJSON := canvas.PayloadJSON
 	beforeHash := cloudAgentCanvasHash(doc)
 	nodes := creationMaps(doc["nodes"])
-	x, y := 80.0, 80.0
-	for _, node := range nodes {
-		position, _ := node["position"].(map[string]any)
-		nx, _ := position["x"].(float64)
-		width, _ := node["width"].(float64)
-		if nx+width+80 > x {
-			x = nx + width + 80
-		}
-		if stringValue(node["id"]) == a.SourceNodeID {
-			y, _ = position["y"].(float64)
-		}
-	}
 	var input struct {
 		Config map[string]any `json:"config"`
 	}
@@ -1239,10 +1230,12 @@ func createCloudAgentMediaNode(repo *repository.Repository, userID, canvasID str
 	if !supported || !cloudAgentGenerationModeSupported(a.Mode) {
 		return BadAuthRequest("生成模式当前不受 Agent 支持")
 	}
-	node := creationAddedNode(CreationCanvasOp{Type: "add_node", ID: a.NodeID, NodeType: descriptor.Type, Title: a.Title, X: &x, Y: &y, Metadata: meta})
+	width, height := cloudAgentAddedNodeSize(descriptor.Type)
 	if a.Size == "9:16" {
-		node["width"], node["height"] = float64(360), float64(640)
+		width, height = 360, 640
 	}
+	position := cloudAgentMediaNodePosition(doc, a, width, height)
+	node := creationAddedNode(CreationCanvasOp{Type: "add_node", ID: a.NodeID, NodeType: descriptor.Type, Title: a.Title, X: &position.X, Y: &position.Y, Width: &width, Height: &height, Metadata: meta})
 	replaced := false
 	for _, existing := range nodes {
 		if stringValue(existing["id"]) == a.NodeID {
@@ -1293,6 +1286,39 @@ func createCloudAgentMediaNode(repo *repository.Repository, userID, canvasID str
 		})
 	}
 	return nil
+}
+
+// 新媒体默认跟随用户本轮的画布焦点；没有焦点时再跟随文本来源或第一张参考素材。
+// 只移动新节点，用户未使用智能整理时也能让同一处创作产生的结果自然聚在一起。
+func cloudAgentMediaNodePosition(doc map[string]any, a cloudAgentMediaArgs, width, height float64) layout.Position {
+	occupied := cloudAgentLayoutNodes(doc)
+	anchorIDs := make([]string, 0, len(a.FocusNodeIDs)+len(a.ReferenceNodeIDs)+1)
+	seen := map[string]bool{}
+	appendAnchor := func(id string) {
+		id = strings.TrimSpace(id)
+		if id != "" && !seen[id] {
+			seen[id] = true
+			anchorIDs = append(anchorIDs, id)
+		}
+	}
+	for _, id := range a.FocusNodeIDs {
+		appendAnchor(id)
+	}
+	appendAnchor(a.SourceNodeID)
+	for _, id := range a.ReferenceNodeIDs {
+		appendAnchor(id)
+	}
+
+	var preferred *layout.Position
+	for _, id := range anchorIDs {
+		if anchor, ok := findLayoutNode(occupied, id); ok {
+			position := layout.Position{X: anchor.X + anchor.Width + layout.PlacementGap, Y: anchor.Y}
+			preferred = &position
+			break
+		}
+	}
+	lane, _ := cloudAgentLayoutLane(a.Mode)
+	return layout.FreeSlot(width, height, lane, occupied, preferred, layout.PlacementGap)
 }
 
 type cloudAgentMediaWritebackError struct {
