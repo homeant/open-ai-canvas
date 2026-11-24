@@ -195,6 +195,45 @@ func TestCloudAgentMediaApprovalCreatesNodeReferencesAndResult(t *testing.T) {
 	}
 }
 
+func TestCloudAgentMediaNodePositionStaysNearFocusedNode(t *testing.T) {
+	doc := map[string]any{"nodes": []map[string]any{
+		layoutNode("focused", "text", 100, 200),
+		layoutNode("source-far-away", "text", 10_000, 0),
+	}, "connections": []any{}}
+	args := cloudAgentMediaArgs{
+		Mode:         "video",
+		FocusNodeIDs: []string{"focused"},
+		SourceNodeID: "source-far-away",
+	}
+
+	first := cloudAgentMediaNodePosition(doc, args, 360, 640)
+	if first.X != 440 || first.Y != 200 {
+		t.Fatalf("新视频没有落在当前节点右侧：%+v", first)
+	}
+	doc["nodes"] = append(creationMaps(doc["nodes"]), layoutNode("first-result", "video", first.X, first.Y))
+	created := creationMaps(doc["nodes"])
+	created[len(created)-1]["width"], created[len(created)-1]["height"] = 360.0, 640.0
+
+	second := cloudAgentMediaNodePosition(doc, args, 360, 640)
+	if second.X != 440 || second.Y != 880 {
+		t.Fatalf("同一处连续生成的节点没有在附近紧凑排开：%+v", second)
+	}
+}
+
+func TestPrepareCloudAgentMediaCarriesCanvasFocus(t *testing.T) {
+	s, _, args := agentMediaFixture(t)
+	run, state := agentMediaRun(t, s, args, "request_approval")
+	state.Request.FocusNodeIDs = []string{"hero"}
+
+	_, plan, err := s.prepareCloudAgentMedia(run, &state, agentMediaCall(args))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Args.FocusNodeIDs) != 1 || plan.Args.FocusNodeIDs[0] != "hero" {
+		t.Fatalf("生成计划丢失当前画布焦点：%v", plan.Args.FocusNodeIDs)
+	}
+}
+
 func TestCloudAgentMetasoH3CatalogSeparatesAudioOutputFromToggle(t *testing.T) {
 	s, db, _ := agentMediaFixture(t)
 	capability := DefaultModelCapabilityConfigForModel("metaso-h3", "MiniMax-H3")
